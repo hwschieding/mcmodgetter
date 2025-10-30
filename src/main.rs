@@ -31,28 +31,22 @@ pub struct Config {
 
 impl Config {
     pub fn build_from_args(args: &Vec<String>) -> Result<Config, &'static str> {
-        let mut mode: Option<AppMode> = None;
-        let mut mcvs: Option<String> = None;
+        let mut mode: Result<AppMode, &'static str> = Err("No ID specified");
+        let mut mcvs: Result<String, &'static str> = Err("No mc version specified");
         let mut loader: Loader = Loader::Fabric;
         let mut args_iter = args.iter();
         args_iter.next();
         while let Some(arg) = args_iter.next(){
             match arg.as_str() {
-                "-id" => mode = Some(get_id_mode(args_iter.next())?),
-                "--readfile" => mode = Some(get_file_mode(args_iter.next())?),
-                "-mcv" => mcvs = Some(get_mcvs(args_iter.next())?),
+                "-id" => mode = Ok(get_id_mode(args_iter.next())?),
+                "--readfile" => mode = Ok(get_file_mode(args_iter.next())?),
+                "-mcv" => mcvs = Ok(get_mcvs(args_iter.next())?),
                 "-l" => loader = get_loader(args_iter.next())?,
                 _ => println!("arg '{arg}' not recognized")
             }
         };
-        if let None = mode {
-            return Err("No ID specified");
-        };
-        if let None = mcvs {
-            return Err("No mc version specified");
-        };
-        let mode = mode.expect("Should not be None");
-        let mcvs = mcvs.expect("Should not be None");
+        let mode = mode?;
+        let mcvs = mcvs?;
         Ok(Config { mode, mcvs, loader })
     }
 }

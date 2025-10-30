@@ -1,28 +1,43 @@
 use std::{env, process};
+use std::error::Error;
 
-fn main() {
+use mcmodgetter::{create_client, get_project};
+
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     let conf = Config::build_from_args(&args).unwrap_or_else(|e| {
         eprintln!("{e}");
         process::exit(1);
     });
-    println!("{:?}", conf);
+    if let Err(e) = run(conf).await {
+        eprintln!("{e}");
+        process::exit(1);
+    }
 }
 
-#[derive(Debug)]
+async fn run(conf: Config) -> Result<(), Box<dyn Error>> {
+    if let AppMode::SingleId(id) = conf.mode {
+        println!("Creating client...");
+        let client = create_client()?;
+        println!("Getting project...");
+        let proj = get_project(&client, &id).await?;
+        println!("id={}\ntitle={}\ndesc={}", proj.get_id(), proj.get_title(), proj.get_desc());
+    }
+    Ok(())
+}
+
 pub enum AppMode {
     SingleId(String),
     IdFromFile(String),
 }
 
-#[derive(Debug)]
 pub enum Loader {
     Fabric,
     Neoforge,
     Forge
 }
 
-#[derive(Debug)]
 pub struct Config {
     mode: AppMode,
     mcvs: String,

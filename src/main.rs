@@ -1,0 +1,91 @@
+use std::{env, process};
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let conf = Config::build_from_args(&args).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        process::exit(1);
+    });
+    println!("{:?}", conf);
+}
+
+#[derive(Debug)]
+pub enum AppMode {
+    SingleId(String),
+    IdFromFile(String),
+}
+
+#[derive(Debug)]
+pub enum Loader {
+    Fabric,
+    Neoforge,
+    Forge
+}
+
+#[derive(Debug)]
+pub struct Config {
+    mode: AppMode,
+    mcvs: String,
+    loader: Loader,
+}
+
+impl Config {
+    pub fn build_from_args(args: &Vec<String>) -> Result<Config, &'static str> {
+        let mut mode: Option<AppMode> = None;
+        let mut mcvs: Option<String> = None;
+        let mut loader: Loader = Loader::Fabric;
+        let mut args_iter = args.iter();
+        args_iter.next();
+        while let Some(arg) = args_iter.next(){
+            match arg.as_str() {
+                "-id" => mode = Some(get_id_mode(args_iter.next())?),
+                "--readfile" => mode = Some(get_file_mode(args_iter.next())?),
+                "-mcv" => mcvs = Some(get_mcvs(args_iter.next())?),
+                "-l" => loader = get_loader(args_iter.next())?,
+                _ => println!("arg '{arg}' not recognized")
+            }
+        };
+        if let None = mode {
+            return Err("No ID specified");
+        };
+        if let None = mcvs {
+            return Err("No mc version specified");
+        };
+        let mode = mode.expect("Should not be None");
+        let mcvs = mcvs.expect("Should not be None");
+        Ok(Config { mode, mcvs, loader })
+    }
+}
+
+fn get_mcvs(mcvs: Option<&String>) -> Result<String, &'static str> {
+    match mcvs {
+        Some(v) => Ok(v.to_string()),
+        None => Err("Invalid mcv")
+    }
+}
+
+fn get_loader(loader: Option<&String>) -> Result<Loader, &'static str> {
+    match loader {
+        Some(v) => { match v.as_str() {
+            "fabric" => Ok(Loader::Fabric),
+            "neoforge" => Ok(Loader::Neoforge),
+            "forge" => Ok(Loader::Forge),
+            _ => Err("Invalid loader")
+        }},
+        None => Err("Invalid loader")
+    }
+}
+
+fn get_id_mode(id: Option<&String>) -> Result<AppMode, &'static str> {
+    match id {
+        Some(v) => Ok(AppMode::SingleId(v.to_string())),
+        None => Err("Invalid ID")
+    }
+}
+
+fn get_file_mode(file: Option<&String>) -> Result<AppMode, &'static str> {
+    match file {
+        Some(v) => Ok(AppMode::IdFromFile(v.to_string())),
+        None => Err("Invalid filename")
+    }
+}

@@ -2,9 +2,11 @@ use futures::future;
 use serde::Deserialize;
 
 static APP_USER_AGENT: &str = concat!(
+    "hwschieding/",
     env!("CARGO_PKG_NAME"),
     "/",
     env!("CARGO_PKG_VERSION"),
+    " (https://github.com/hwschieding/mcmodgetter)"
 );
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 

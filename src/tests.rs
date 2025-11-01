@@ -49,3 +49,10 @@ async fn get_primary_file_for_latest_sodium() {
     assert_eq!(file_index, 0);
     assert!(v.files()[0].primary());
 }
+
+#[test]
+fn build_modrinth_query() {
+    let query = Query::build_query(&String::from("1.21.9,1.21.10"), &String::from("fabric"));
+    assert_eq!(query.mcvs(), "[\"1.21.9\",\"1.21.10\"]");
+    assert_eq!(query.loader(), "[\"fabric\"]");
+}

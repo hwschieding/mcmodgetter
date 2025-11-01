@@ -1,6 +1,6 @@
 use std::fmt;
 use futures::future;
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 
@@ -111,9 +111,55 @@ impl Clone for File {
     }
 }
 
-pub async fn get_project(client: &reqwest::Client, id: &str) -> Result<Project, reqwest::Error> {
+#[derive(Serialize)]
+pub struct Query {
+    mcvs: String,
+    loader: String
+}
+
+impl Query {
+    fn build_param_array(user_params: &String) -> String {
+        let mut params = user_params.split(",");
+        let mut res: String = String::from("[");
+        res = format!("{}{}{}{}",
+            res,
+            "\"",
+            params.next().expect("param shouldn't be empty"),
+            "\""
+        );
+        while let Some(prm) = params.next() {
+            res = format!("{}{}{}{}{}",
+                res,
+                ",",
+                "\"",
+                prm,
+                "\""
+            );
+        }
+        format!("{}{}", res, "]")
+    }
+    pub fn build_query(user_mcvs: &String, user_loader: &String) -> Query {
+        let mcvs= Self::build_param_array(user_mcvs);
+        let loader= Self::build_param_array(user_loader);
+        Query { mcvs, loader }
+    }
+    pub fn mcvs(&self) -> &str {
+        &self.mcvs.as_str()
+    }
+    pub fn loader(&self) -> &str {
+        &self.loader.as_str()
+    }
+}
+
+pub async fn get_project(
+    client: &reqwest::Client,
+    id: &str
+) -> Result<Project, reqwest::Error>
+{
     let url = format!("{}{}{}", MODRINTH_URL, "/v2/project/", id);
-    let response = client.get(url).send().await?;
+    let response = client.get(url)
+        .send()
+        .await?;
     response.json::<Project>().await
 }
 
@@ -129,13 +175,28 @@ pub async fn get_projects_from_list(
     future::join_all(responses).await
 }
 
-pub async fn get_version(client: &reqwest::Client, project_id: &str) -> Result<Vec<Version>, reqwest::Error> {
-    let url = format!("{}{}{}{}", MODRINTH_URL, "/v2/project/", project_id, "/version");
-    let response = client.get(url).send().await?;
+pub async fn get_version(
+    client: &reqwest::Client,
+    project_id: &str
+) -> Result<Vec<Version>, reqwest::Error>
+{
+    let url = format!("{}{}{}{}",
+        MODRINTH_URL,
+        "/v2/project/",
+        project_id,
+        "/version"
+    );
+    let response = client.get(url)
+        .send()
+        .await?;
     response.json::<Vec<Version>>().await
 }
 
-pub async fn get_top_version(client: & reqwest::Client, project_id: &str) -> Result<Version, VersionError> {
+pub async fn get_top_version(
+    client: & reqwest::Client,
+    project_id: &str
+) -> Result<Version, VersionError>
+{
     let response = get_version(client, project_id).await?;
     match response.get(0).cloned() {
         Some(v) => Ok(v),
@@ -148,9 +209,7 @@ pub async fn search_for_primary_file(files: &Vec<File>) -> Option<usize> {
         return None; // If there are no files
     }
     for (i, file) in files.iter().enumerate() {
-        if file.primary {
-            return Some(i);
-        }
+        if file.primary { return Some(i); }
     }
     Some(0) // If no file is marked primary, return 1st file
 }

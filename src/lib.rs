@@ -121,10 +121,22 @@ pub async fn get_version(client: &reqwest::Client, project_id: &str) -> Result<V
     response.json::<Vec<Version>>().await
 }
 
-pub async fn get_top_version<'a>(client: &'a reqwest::Client, project_id: &str) -> Result<Version, VersionError> {
+pub async fn get_top_version(client: & reqwest::Client, project_id: &str) -> Result<Version, VersionError> {
     let response = get_version(client, project_id).await?;
     match response.get(0).cloned() {
         Some(v) => Ok(v),
         None => Err(VersionError::NoVersion("No version available"))
     }
+}
+
+pub async fn search_for_primary_file(files: &Vec<File>) -> Option<usize> {
+    if files.len() == 0 {
+        return None; // If there are no files
+    }
+    for (i, file) in files.iter().enumerate() {
+        if file.primary {
+            return Some(i);
+        }
+    }
+    Some(0) // If no file is marked primary, return 1st file
 }

@@ -1,3 +1,7 @@
+use std::fmt;
+use futures::future;
+use serde::Deserialize;
+
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 
 #[derive(Debug)]
@@ -48,6 +52,24 @@ pub struct Version {
     files: Vec<File>
 }
 
+impl Version {
+    pub fn id(&self) -> &String{
+        &self.id
+    }
+    pub fn project_id(&self) -> &String {
+        &self.project_id
+    }
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+    pub fn version_number(&self) -> &String {
+        &self.version_number
+    }
+    pub fn files(&self) -> &Vec<File> {
+        &self.files
+    }
+}
+
 impl Clone for Version {
     fn clone(&self) -> Self {
         Version {
@@ -65,6 +87,18 @@ pub struct File {
     url: String,
     filename: String,
     primary: bool
+}
+
+impl File {
+    pub fn url(&self) -> &String {
+        &self.url
+    }
+    pub fn filename(&self) -> &String {
+        &self.filename
+    }
+    pub fn primary(&self) -> &bool {
+        &self.primary
+    }
 }
 
 impl Clone for File {

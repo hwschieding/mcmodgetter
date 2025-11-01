@@ -1,7 +1,7 @@
 use std::{env, process};
 use std::error::Error;
 
-use mcmodgetter::{create_client, get_project};
+use mcmodgetter::{create_client, modrinth::get_project};
 
 #[tokio::main]
 async fn main() {

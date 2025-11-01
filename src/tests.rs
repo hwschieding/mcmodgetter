@@ -39,3 +39,12 @@ async fn get_top_version_sodium() {
     assert_eq!(v.files[0].filename, "sodium-neoforge-0.7.2+mc1.21.10.jar");
     assert!(v.files[0].primary);
 }
+
+#[tokio::test]
+async fn get_primary_file_for_latest_sodium() {
+    let client = create_client().expect("Client should be created");
+    let v = get_top_version(&client, "AANobbMI").await.expect("should exist");
+    let file_index = search_for_primary_file(&v.files).await.expect("Should be Some");
+    assert_eq!(file_index, 0);
+    assert!(v.files[0].primary);
+}

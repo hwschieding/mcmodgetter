@@ -112,12 +112,12 @@ impl Clone for File {
 }
 
 #[derive(Serialize)]
-pub struct Query {
-    mcvs: String,
-    loader: String
+pub struct VersionQuery {
+    game_versions: String,
+    loaders: String
 }
 
-impl Query {
+impl VersionQuery {
     fn build_param_array(user_params: &String) -> String {
         let mut params = user_params.split(",");
         let mut res: String = String::from("[");
@@ -138,16 +138,16 @@ impl Query {
         }
         format!("{}{}", res, "]")
     }
-    pub fn build_query(user_mcvs: &String, user_loader: &String) -> Query {
-        let mcvs= Self::build_param_array(user_mcvs);
-        let loader= Self::build_param_array(user_loader);
-        Query { mcvs, loader }
+    pub fn build_query(user_mcvs: &String, user_loader: &String) -> VersionQuery {
+        let game_versions= Self::build_param_array(user_mcvs);
+        let loaders= Self::build_param_array(user_loader);
+        VersionQuery { game_versions, loaders }
     }
     pub fn mcvs(&self) -> &str {
-        &self.mcvs.as_str()
+        &self.game_versions.as_str()
     }
     pub fn loader(&self) -> &str {
-        &self.loader.as_str()
+        &self.loaders.as_str()
     }
 }
 
@@ -177,7 +177,8 @@ pub async fn get_projects_from_list(
 
 pub async fn get_version(
     client: &reqwest::Client,
-    project_id: &str
+    project_id: &str,
+    query: &VersionQuery
 ) -> Result<Vec<Version>, reqwest::Error>
 {
     let url = format!("{}{}{}{}",
@@ -187,6 +188,7 @@ pub async fn get_version(
         "/version"
     );
     let response = client.get(url)
+        .query(query)
         .send()
         .await?;
     response.json::<Vec<Version>>().await
@@ -194,10 +196,11 @@ pub async fn get_version(
 
 pub async fn get_top_version(
     client: & reqwest::Client,
-    project_id: &str
+    project_id: &str,
+    query: &VersionQuery
 ) -> Result<Version, VersionError>
 {
-    let response = get_version(client, project_id).await?;
+    let response = get_version(client, project_id, query).await?;
     match response.get(0).cloned() {
         Some(v) => Ok(v),
         None => Err(VersionError::NoVersion("No version available"))

@@ -1,4 +1,5 @@
-use std::fmt;
+use std::{fmt, fs};
+use std::io::Write;
 use futures::future;
 use serde::{Serialize, Deserialize};
 
@@ -49,7 +50,7 @@ pub struct Version {
     project_id: String,
     name: String,
     version_number: String,
-    files: Vec<File>
+    files: Vec<ModrinthFile>
 }
 
 impl Version {
@@ -65,7 +66,7 @@ impl Version {
     pub fn version_number(&self) -> &String {
         &self.version_number
     }
-    pub fn files(&self) -> &Vec<File> {
+    pub fn files(&self) -> &Vec<ModrinthFile> {
         &self.files
     }
 }
@@ -83,13 +84,19 @@ impl Clone for Version {
 }
 
 #[derive(Deserialize)]
-pub struct File {
+pub struct ModrinthFile {
     url: String,
     filename: String,
     primary: bool
 }
 
-impl File {
+impl ModrinthFile {
+    pub fn new(user_url: &str, user_filename: &str)-> ModrinthFile {
+        let url = String::from(user_url);
+        let filename = String::from(user_filename);
+        let primary = true;
+        ModrinthFile { url, filename, primary }
+    }
     pub fn url(&self) -> &String {
         &self.url
     }
@@ -101,9 +108,9 @@ impl File {
     }
 }
 
-impl Clone for File {
+impl Clone for ModrinthFile {
     fn clone(&self) -> Self {
-        File {
+        ModrinthFile {
             url: self.url.clone(),
             filename: self.filename.clone(),
             primary: self.primary
@@ -121,19 +128,14 @@ impl VersionQuery {
     fn build_param_array(user_params: &String) -> String {
         let mut params = user_params.split(",");
         let mut res: String = String::from("[");
-        res = format!("{}{}{}{}",
+        res = format!("{}\"{}\"",
             res,
-            "\"",
             params.next().expect("param shouldn't be empty"),
-            "\""
         );
         while let Some(prm) = params.next() {
-            res = format!("{}{}{}{}{}",
+            res = format!("{},\"{}\"",
                 res,
-                ",",
-                "\"",
                 prm,
-                "\""
             );
         }
         format!("{}{}", res, "]")
@@ -207,7 +209,7 @@ pub async fn get_top_version(
     }
 }
 
-pub async fn search_for_primary_file(files: &Vec<File>) -> Option<usize> {
+pub async fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize> {
     if files.len() == 0 {
         return None; // If there are no files
     }
@@ -215,4 +217,11 @@ pub async fn search_for_primary_file(files: &Vec<File>) -> Option<usize> {
         if file.primary { return Some(i); }
     }
     Some(0) // If no file is marked primary, return 1st file
+}
+
+pub async fn download_file(client: &reqwest::Client, f_in: &ModrinthFile) -> Result<(), Box<dyn std::error::Error>> {
+    let res = client.get(f_in.url()).send().await?.bytes().await?;
+    let mut f_out = fs::File::create(format!("mods/{}", f_in.filename()))?;
+    f_out.write_all(&res)?;
+    Ok(())
 }

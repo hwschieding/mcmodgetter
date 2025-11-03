@@ -1,7 +1,7 @@
 use std::{env, process};
 use std::error::Error;
 
-use mcmodgetter::{create_client, modrinth::get_project};
+use mcmodgetter::{create_client, modrinth};
 
 #[tokio::main]
 async fn main() {
@@ -18,11 +18,12 @@ async fn main() {
 
 async fn run(conf: Config) -> Result<(), Box<dyn Error>> {
     if let AppMode::SingleId(id) = conf.mode {
-        println!("Creating client...");
         let client = create_client()?;
-        println!("Getting project...");
-        let proj = get_project(&client, &id).await?;
-        println!("id={}\ntitle={}\ndesc={}", proj.get_id(), proj.get_title(), proj.get_desc());
+        let f_in = modrinth::ModrinthFile::new(
+            "https://cdn.modrinth.com/data/AANobbMI/versions/VTidoe6U/sodium-fabric-0.7.2%2Bmc1.21.10.jar", 
+            "sodium-fabric-0.7.2+mc1.21.10.jar"
+        );
+        modrinth::download_file(&client, &f_in).await?;
     }
     Ok(())
 }

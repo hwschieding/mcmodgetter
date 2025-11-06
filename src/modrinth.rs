@@ -219,9 +219,17 @@ pub async fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize>
     Some(0) // If no file is marked primary, return 1st file
 }
 
-pub async fn download_file(client: &reqwest::Client, f_in: &ModrinthFile) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn download_file(
+    client: &reqwest::Client,
+    f_in: &ModrinthFile,
+    out_dir: &str
+) -> Result<(), Box<dyn std::error::Error>> 
+{
     let res = client.get(f_in.url()).send().await?.bytes().await?;
-    let mut f_out = fs::File::create(format!("mods/{}", f_in.filename()))?;
+    let mut f_out = fs::File::create(format!(
+        "{}/{}",
+        out_dir, 
+        f_in.filename()))?;
     f_out.write_all(&res)?;
     Ok(())
 }

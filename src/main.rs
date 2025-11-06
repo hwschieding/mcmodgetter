@@ -23,7 +23,7 @@ async fn run(conf: Config) -> Result<(), Box<dyn Error>> {
             "https://cdn.modrinth.com/data/AANobbMI/versions/VTidoe6U/sodium-fabric-0.7.2%2Bmc1.21.10.jar", 
             "sodium-fabric-0.7.2+mc1.21.10.jar"
         );
-        modrinth::download_file(&client, &f_in).await?;
+        modrinth::download_file(&client, &f_in, "mods").await?;
     }
     Ok(())
 }

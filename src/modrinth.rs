@@ -20,11 +20,21 @@ impl fmt::Display for VersionError {
     }
 }
 
+impl std::error::Error for VersionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::BadRequest(err) => Some(err),
+            _ => None
+        }
+    }
+}
+
 impl From<reqwest::Error> for VersionError {
     fn from(value: reqwest::Error) -> Self {
         Self::BadRequest(value)
     }
 }
+
 #[derive(Deserialize)]
 pub struct Project {
     id: String,
@@ -205,11 +215,14 @@ pub async fn get_top_version(
     let response = get_version(client, project_id, query).await?;
     match response.get(0).cloned() {
         Some(v) => Ok(v),
-        None => Err(VersionError::NoVersion("No version available"))
+        None => {
+            eprintln!("No suitable version for id {project_id}");
+            Err(VersionError::NoVersion("No version available"))
+        }
     }
 }
 
-pub async fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize> {
+pub fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize> {
     if files.len() == 0 {
         return None; // If there are no files
     }
@@ -225,11 +238,26 @@ pub async fn download_file(
     out_dir: &str
 ) -> Result<(), Box<dyn std::error::Error>> 
 {
-    let res = client.get(f_in.url()).send().await?.bytes().await?;
+    let res = client.get(f_in.url())
+        .send()
+        .await?
+        .bytes()
+        .await?;
     let mut f_out = fs::File::create(format!(
         "{}/{}",
         out_dir, 
         f_in.filename()))?;
     f_out.write_all(&res)?;
     Ok(())
+}
+
+pub fn collect_versions(results: Vec<Result<Version, VersionError>>) -> Vec<Version> {
+    let mut out: Vec<Version> = Vec::new();
+    for res in results {
+        match res {
+            Ok(v) => out.push(v),
+            Err(e) => eprintln!("Could not retrieve version: {e}")
+        }       
+    }
+    out
 }

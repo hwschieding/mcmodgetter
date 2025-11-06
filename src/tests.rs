@@ -57,7 +57,7 @@ async fn get_primary_file_for_latest_sodium() {
         &String::from("fabric")
     );
     let v = get_top_version(&client, "AANobbMI", &query).await.expect("should exist");
-    let file_index = search_for_primary_file(&v.files()).await.expect("Should be Some");
+    let file_index = search_for_primary_file(&v.files()).expect("Should be Some");
     assert_eq!(file_index, 0);
     assert!(v.files()[0].primary());
 }

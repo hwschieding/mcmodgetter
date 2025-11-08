@@ -1,5 +1,5 @@
 use std::{fmt, fs};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use futures::future;
 use serde::{Serialize, Deserialize};
 
@@ -232,6 +232,38 @@ pub fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize> {
     Some(0) // If no file is marked primary, return 1st file
 }
 
+
+fn file_from_ver(v: &Version) -> Option<ModrinthFile>{
+    let v_files = v.files();
+    let primary_idx = search_for_primary_file(v_files);
+    if let Some(idx) = primary_idx {
+        Some(v_files[idx].clone())
+    } else {
+        None
+    }
+}
+
+pub async fn get_file_direct(
+    client: &reqwest::Client,
+    project_id: &str,
+    query: &VersionQuery,
+) -> Option<ModrinthFile>
+{
+    match get_top_version(client, project_id, query).await {
+        Ok(version) => {
+            println!("({project_id}) Found suitable version: {} [{}]",
+                version.name(),
+                version.version_number()
+            );
+            file_from_ver(&version)
+        }
+        Err(e) => {
+            println!("({project_id}) Failed to find suitable version: {e}");
+            None
+        }
+    }
+}
+
 pub async fn download_file(
     client: &reqwest::Client,
     f_in: &ModrinthFile,
@@ -248,6 +280,7 @@ pub async fn download_file(
         out_dir, 
         f_in.filename()))?;
     f_out.write_all(&res)?;
+    println!("Successfully downloaded {}", f_in.filename());
     Ok(())
 }
 
@@ -261,3 +294,23 @@ pub fn collect_versions(results: Vec<Result<Version, VersionError>>) -> Vec<Vers
     }
     out
 }
+
+// pub async fn download_from_id_file(
+//     client: &reqwest::Client,
+//     filename: &str,
+//     query: &VersionQuery,
+//     out_dir: &str
+// ) -> Result<(), Box<dyn std::error::Error>>
+// {
+//     let f_in = fs::File::open(filename)?;
+//     let reader = BufReader::new(f_in);
+//     let mut download_tasks = Vec::new();
+//     for reader_line in reader.lines() {
+//         if let Ok(line) = reader_line {
+//             download_tasks.push(
+//                 get_file_direct(client, &line, query).await
+//             )
+//         }
+//     }
+//     Ok(())
+// }

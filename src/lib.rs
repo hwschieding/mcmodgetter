@@ -1,4 +1,9 @@
 use futures::future;
+use std::fs::File;
+use std::io;
+use std::io::BufRead;
+
+use crate::modrinth::ModrinthFile;
 
 #[cfg(test)]
 mod tests;
@@ -21,20 +26,18 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
 
 async fn collect_modrinth_downloads(
     client: &reqwest::Client,
-    versions: &Vec<modrinth::Version>,
+    files: &Vec<Option<ModrinthFile>>,
     out_dir: &str
 ) -> Vec<Result<(), Box<dyn std::error::Error>>>
 {
     let mut download_tasks = Vec::new();
-    for v in versions {
-        if let Some(primary_idx) = modrinth::search_for_primary_file(&v.files()) {
-            download_tasks.push(modrinth::download_file(
-                client,
-                &v.files()[primary_idx],
-                out_dir
-            ));
-        };
-    };
+    for file in files {
+        if let Some(f) = file {
+            download_tasks.push(
+                modrinth::download_file(client, f, out_dir)
+            )
+        }
+    }
     future::join_all(download_tasks).await
 }
 
@@ -49,17 +52,17 @@ pub async  fn modrinth_download_from_id_list(
         conf.mcvs(), 
         &conf.loader_as_string()
     );
-    let mut version_results  = Vec::new();
+    let mut file_results  = Vec::new();
     for id in ids {
         println!("Getting ID '{id}'...");
-        version_results.push(modrinth::get_top_version(&client, id, &query))
+        file_results.push(
+            modrinth::get_file_direct(client, id, &query)
+        )
     }
-    let versions = modrinth::collect_versions(
-        future::join_all(version_results).await
-    );
+    let mod_files = future::join_all(file_results).await;
     let downloads = collect_modrinth_downloads(
         client,
-        &versions,
+        &mod_files,
         out_dir.unwrap_or("mods/")
     ).await;
     let download_errors: Vec<Box<dyn std::error::Error>> = downloads.into_iter()
@@ -69,4 +72,15 @@ pub async  fn modrinth_download_from_id_list(
         println!("Download error: {err}")
     }
     Ok(())
+}
+
+pub fn vec_from_lines(filename: &String) -> io::Result<Vec<String>> {
+    let mut out = Vec::new();
+    let f_in = File::open(filename)?;
+    for reader_line in io::BufReader::new(f_in).lines() {
+        if let Ok(line) = reader_line {
+            out.push(line)
+        }
+    }
+    Ok(out)
 }

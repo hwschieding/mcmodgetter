@@ -2,6 +2,7 @@ use futures::future;
 use std::fs::File;
 use std::io;
 use std::io::BufRead;
+use std::path::{Path, PathBuf};
 
 use crate::modrinth::ModrinthFile;
 
@@ -27,7 +28,7 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
 async fn collect_modrinth_downloads(
     client: &reqwest::Client,
     files: &Vec<Option<ModrinthFile>>,
-    out_dir: &str
+    out_dir: &PathBuf
 ) -> Vec<Result<(), Box<dyn std::error::Error>>>
 {
     let mut download_tasks = Vec::new();
@@ -41,11 +42,10 @@ async fn collect_modrinth_downloads(
     future::join_all(download_tasks).await
 }
 
-pub async  fn modrinth_download_from_id_list(
-    conf: &arguments::Config,
+pub async fn modrinth_download_from_id_list<'a>(
+    conf: &arguments::Config<'a>,
     client: &reqwest::Client,
     ids: &Vec<String>,
-    out_dir: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     let query: modrinth::VersionQuery = modrinth::VersionQuery::build_query(
@@ -60,10 +60,15 @@ pub async  fn modrinth_download_from_id_list(
         )
     }
     let mod_files = future::join_all(file_results).await;
+    let default_out = PathBuf::from("mods");
+    let out_dir = match conf.out_dir() {
+        Some(v) => v,
+        None => &default_out
+    };
     let downloads = collect_modrinth_downloads(
         client,
         &mod_files,
-        out_dir.unwrap_or("mods/")
+        &out_dir
     ).await;
     let download_errors: Vec<Box<dyn std::error::Error>> = downloads.into_iter()
         .filter_map(Result::err)
@@ -74,7 +79,7 @@ pub async  fn modrinth_download_from_id_list(
     Ok(())
 }
 
-pub fn vec_from_lines(filename: &String) -> io::Result<Vec<String>> {
+pub fn vec_from_lines(filename: &Path) -> io::Result<Vec<String>> {
     let mut out = Vec::new();
     let f_in = File::open(filename)?;
     for reader_line in io::BufReader::new(f_in).lines() {

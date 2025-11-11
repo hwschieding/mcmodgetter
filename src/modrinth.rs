@@ -1,5 +1,6 @@
 use std::{fmt, fs};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Write};
+use std::path::PathBuf;
 use futures::future;
 use serde::{Serialize, Deserialize};
 
@@ -267,7 +268,7 @@ pub async fn get_file_direct(
 pub async fn download_file(
     client: &reqwest::Client,
     f_in: &ModrinthFile,
-    out_dir: &str
+    out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>> 
 {
     let res = client.get(f_in.url())
@@ -275,10 +276,9 @@ pub async fn download_file(
         .await?
         .bytes()
         .await?;
-    let mut f_out = fs::File::create(format!(
-        "{}/{}",
-        out_dir, 
-        f_in.filename()))?;
+    let mut f_out = fs::File::create(
+        out_dir.join(f_in.filename())
+    )?;
     f_out.write_all(&res)?;
     println!("Successfully downloaded {}", f_in.filename());
     Ok(())

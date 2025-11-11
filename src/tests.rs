@@ -22,15 +22,15 @@ async fn get_list_of_projects() {
 async fn get_version_sodium() {
     let client = create_client().expect("Client should be created");
     let query = VersionQuery::build_query(
-        &String::from("1.21.9,1.21.10"), 
+        &String::from("1.21.8"), 
         &String::from("fabric")
     );
     let versions = get_version(&client, "AANobbMI", &query).await.expect("should exist");
     let v = &versions[0];
-    assert_eq!(v.id(), "VTidoe6U");
-    assert_eq!(v.name(), "Sodium 0.7.2 for Fabric 1.21.10");
-    assert_eq!(v.version_number(), "mc1.21.10-0.7.2-fabric");
-    assert_eq!(v.files()[0].filename(), "sodium-fabric-0.7.2+mc1.21.10.jar");
+    assert_eq!(v.id(), "7pwil2dy");
+    assert_eq!(v.name(), "Sodium 0.7.3 for Fabric 1.21.8");
+    assert_eq!(v.version_number(), "mc1.21.8-0.7.3-fabric");
+    assert_eq!(v.files()[0].filename(), "sodium-fabric-0.7.3+mc1.21.8.jar");
     assert!(v.files()[0].primary());
 }
 
@@ -38,14 +38,14 @@ async fn get_version_sodium() {
 async fn get_top_version_sodium() {
     let client = create_client().expect("Client should be created");
     let query = VersionQuery::build_query(
-        &String::from("1.21.9,1.21.10"), 
+        &String::from("1.21.8"), 
         &String::from("fabric")
     );
     let v = get_top_version(&client, "AANobbMI", &query).await.expect("Should work");
-    assert_eq!(v.id(), "VTidoe6U");
-    assert_eq!(v.name(), "Sodium 0.7.2 for Fabric 1.21.10");
-    assert_eq!(v.version_number(), "mc1.21.10-0.7.2-fabric");
-    assert_eq!(v.files()[0].filename(), "sodium-fabric-0.7.2+mc1.21.10.jar");
+    assert_eq!(v.id(), "7pwil2dy");
+    assert_eq!(v.name(), "Sodium 0.7.3 for Fabric 1.21.8");
+    assert_eq!(v.version_number(), "mc1.21.8-0.7.3-fabric");
+    assert_eq!(v.files()[0].filename(), "sodium-fabric-0.7.3+mc1.21.8.jar");
     assert!(v.files()[0].primary());
 }
 

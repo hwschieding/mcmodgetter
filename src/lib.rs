@@ -4,14 +4,15 @@ use std::io;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
-use crate::modrinth::ModrinthFile;
+use crate::modrinth::{ModrinthFile, VersionQuery, download_file, get_file_direct};
 
 #[cfg(test)]
 mod tests;
 pub mod modrinth;
 pub mod arguments;
 
-static APP_USER_AGENT: &str = concat!(
+const DEFAULT_OUT_DIR: &str = "mods";
+const APP_USER_AGENT: &str = concat!(
     "hwschieding/",
     env!("CARGO_PKG_NAME"),
     "/",
@@ -23,6 +24,30 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
         .build()
+}
+
+pub async fn modrinth_download_from_id<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    id: &str
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    let query = VersionQuery::build_query(
+        conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    if let Some(file) = get_file_direct(client, id, &query).await {
+        let default_out = PathBuf::from(DEFAULT_OUT_DIR);
+        let out_dir = match conf.out_dir() {
+            Some(v) => v,
+            None => &default_out
+        };
+        download_file(client, &file, out_dir).await?
+    } else {
+        println!("No file available for id {id}")
+    };
+
+    Ok(())
 }
 
 async fn collect_modrinth_downloads(
@@ -60,7 +85,7 @@ pub async fn modrinth_download_from_id_list<'a>(
         )
     }
     let mod_files = future::join_all(file_results).await;
-    let default_out = PathBuf::from("mods");
+    let default_out = PathBuf::from(DEFAULT_OUT_DIR);
     let out_dir = match conf.out_dir() {
         Some(v) => v,
         None => &default_out

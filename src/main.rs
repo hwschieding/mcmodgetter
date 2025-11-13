@@ -1,7 +1,7 @@
 use std::{env, process};
 use std::error::Error;
 
-use mcmodgetter::{create_client, modrinth_download_from_id_list, vec_from_lines};
+use mcmodgetter::{create_client, modrinth_download_from_id, modrinth_download_from_id_list, vec_from_lines};
 use mcmodgetter::arguments::{Config, AppMode};
 
 #[tokio::main]
@@ -17,11 +17,14 @@ async fn main() {
     }
 }
 async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
+    println!("Starting...");
+    let client = create_client()?;
     if let AppMode::IdFromFile(filename) = conf.mode() {
-        println!("Starting...");
-        let client = create_client()?;
         let ids = vec_from_lines(filename)?;
         modrinth_download_from_id_list(&conf, &client, &ids).await?;
+    }
+    if let AppMode::SingleId(id) = conf.mode() {
+        modrinth_download_from_id(&conf, &client, id).await?;
     }
     Ok(())
 }

@@ -1,7 +1,6 @@
 use futures::future;
-use std::fs::File;
-use std::io;
-use std::io::BufRead;
+use std::fs::{self, File};
+use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 
 use crate::modrinth::{ModrinthFile, VersionQuery, download_file, get_file_direct};
@@ -26,10 +25,17 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
+pub fn get_out_dir(conf_dir: &Option<&Path>) -> Result<PathBuf, io::Error> {
+    let path = conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR));
+    fs::create_dir_all(path)?;
+    Ok(PathBuf::from(path))
+}
+
 pub async fn modrinth_download_from_id<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
-    id: &str
+    id: &str,
+    out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     let query = VersionQuery::build_query(
@@ -37,11 +43,6 @@ pub async fn modrinth_download_from_id<'a>(
         &conf.loader_as_string()
     );
     if let Some(file) = get_file_direct(client, id, &query).await {
-        let default_out = PathBuf::from(DEFAULT_OUT_DIR);
-        let out_dir = match conf.out_dir() {
-            Some(v) => v,
-            None => &default_out
-        };
         download_file(client, &file, out_dir).await?
     } else {
         println!("No file available for id {id}")
@@ -71,6 +72,7 @@ pub async fn modrinth_download_from_id_list<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
     ids: &Vec<String>,
+    out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     let query: modrinth::VersionQuery = modrinth::VersionQuery::build_query(
@@ -85,11 +87,6 @@ pub async fn modrinth_download_from_id_list<'a>(
         )
     }
     let mod_files = future::join_all(file_results).await;
-    let default_out = PathBuf::from(DEFAULT_OUT_DIR);
-    let out_dir = match conf.out_dir() {
-        Some(v) => v,
-        None => &default_out
-    };
     let downloads = collect_modrinth_downloads(
         client,
         &mod_files,

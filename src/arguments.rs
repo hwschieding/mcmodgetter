@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 pub enum AppMode<'a> {
     SingleId(String),
@@ -15,7 +15,7 @@ pub struct Config<'a> {
     mode: AppMode<'a>,
     mcvs: String,
     loader: Loader,
-    out_dir: Option<PathBuf>,
+    out_dir: Option<&'a Path>,
 }
 
 impl<'a> Config<'a> {
@@ -23,7 +23,7 @@ impl<'a> Config<'a> {
         let mut mode: Result<AppMode, &'static str> = Err("No ID specified");
         let mut mcvs: Result<String, &'static str> = Err("No mc version specified");
         let mut loader: Loader = Loader::Fabric;
-        let mut out_dir: Option<PathBuf> = None;
+        let mut out_dir: Option<&Path> = None;
         let mut args_iter = args.iter();
         args_iter.next();
         while let Some(arg) = args_iter.next(){
@@ -49,7 +49,7 @@ impl<'a> Config<'a> {
     pub fn loader(&self) -> &Loader {
         &self.loader
     }
-    pub fn out_dir(&self) -> &Option<PathBuf> {
+    pub fn out_dir(&self) -> &Option<&Path> {
         &self.out_dir
     }
     pub fn loader_as_str(&self) -> &str {
@@ -101,9 +101,9 @@ fn get_file_mode<'a>(file: Option<&'a String>) -> Result<AppMode<'a>, &'static s
     }
 }
 
-fn get_out_dir(file: Option<&String>) -> Result<PathBuf, &'static str> {
+fn get_out_dir(file: Option<&String>) -> Result<&Path, &'static str> {
     match file {
-        Some(f) => Ok(PathBuf::from(f)),
+        Some(f) => Ok(Path::new(f)),
         None => Err("Invalid output directory")
     }
 }

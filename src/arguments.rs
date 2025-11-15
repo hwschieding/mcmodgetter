@@ -3,6 +3,7 @@ use std::path::{Path};
 pub enum AppMode<'a> {
     SingleId(String),
     IdFromFile(&'a Path),
+    ClearMods,
 }
 
 pub enum Loader {
@@ -33,11 +34,15 @@ impl<'a> Config<'a> {
                 "-mcv" => mcvs = Ok(get_mcvs(args_iter.next())?),
                 "-l" => loader = get_loader(args_iter.next())?,
                 "-o" => out_dir = Some(get_out_dir(args_iter.next())?),
+                "clearmods" => mode = Ok(AppMode::ClearMods),
                 _ => println!("arg '{arg}' not recognized")
             }
         };
         let mode = mode?;
-        let mcvs = mcvs?;
+        let mcvs = match mode {
+            AppMode::ClearMods => String::new(),
+            _ => mcvs?
+        };
         Ok(Config { mode, mcvs, loader, out_dir })
     }
     pub fn mode(&self) -> &AppMode<'a> {

@@ -294,23 +294,3 @@ pub fn collect_versions(results: Vec<Result<Version, VersionError>>) -> Vec<Vers
     }
     out
 }
-
-// pub async fn download_from_id_file(
-//     client: &reqwest::Client,
-//     filename: &str,
-//     query: &VersionQuery,
-//     out_dir: &str
-// ) -> Result<(), Box<dyn std::error::Error>>
-// {
-//     let f_in = fs::File::open(filename)?;
-//     let reader = BufReader::new(f_in);
-//     let mut download_tasks = Vec::new();
-//     for reader_line in reader.lines() {
-//         if let Ok(line) = reader_line {
-//             download_tasks.push(
-//                 get_file_direct(client, &line, query).await
-//             )
-//         }
-//     }
-//     Ok(())
-// }

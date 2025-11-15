@@ -1,9 +1,14 @@
 use futures::future;
-use std::fs::{self, File};
+use std::fs::{self, DirEntry, File};
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 
-use crate::modrinth::{ModrinthFile, VersionQuery, download_file, get_file_direct};
+use crate::modrinth::{
+    ModrinthFile,
+    VersionQuery,
+    download_file,
+    get_file_direct
+};
 
 #[cfg(test)]
 mod tests;
@@ -29,6 +34,36 @@ pub fn get_out_dir(conf_dir: &Option<&Path>) -> Result<PathBuf, io::Error> {
     let path = conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR));
     fs::create_dir_all(path)?;
     Ok(PathBuf::from(path))
+}
+
+fn remove_entry(entry: &DirEntry) -> io::Result<()> {
+    let path = entry.path();
+    if path.is_dir() {
+        fs::remove_dir_all(&path)?;
+    } else if path.is_file() {
+        fs::remove_file(&path)?;
+    }
+    println!("Removed entry {}", &path.display());
+    Ok(())
+}
+
+pub fn clear_dir(out_dir: &PathBuf) -> io::Result<()>{
+    println!("Clearing folder {}...", out_dir.display());
+    for entry in fs::read_dir(out_dir)? {
+        match entry {
+            Ok(v) => {
+                if let Err(e) = remove_entry(&v) {
+                    println!("Could not remove entry {} because {e}",
+                        &v.path().display()
+                    );
+                }
+            },
+            Err(e) => {
+                println!("Could not resolve dir entry: {e}");
+            }
+        }
+    }
+    Ok(())
 }
 
 pub async fn modrinth_download_from_id<'a>(

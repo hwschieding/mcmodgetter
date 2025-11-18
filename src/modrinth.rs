@@ -3,6 +3,7 @@ use std::io::{Write};
 use std::path::PathBuf;
 use futures::future;
 use serde::{Serialize, Deserialize};
+use sha2::{Sha512, Digest};
 
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 
@@ -98,16 +99,11 @@ impl Clone for Version {
 pub struct ModrinthFile {
     url: String,
     filename: String,
-    primary: bool
+    primary: bool,
+    hashes: ModrinthFileHash,
 }
 
 impl ModrinthFile {
-    pub fn new(user_url: &str, user_filename: &str)-> ModrinthFile {
-        let url = String::from(user_url);
-        let filename = String::from(user_filename);
-        let primary = true;
-        ModrinthFile { url, filename, primary }
-    }
     pub fn url(&self) -> &String {
         &self.url
     }
@@ -124,7 +120,21 @@ impl Clone for ModrinthFile {
         ModrinthFile {
             url: self.url.clone(),
             filename: self.filename.clone(),
-            primary: self.primary
+            primary: self.primary,
+            hashes: self.hashes.clone()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ModrinthFileHash {
+    sha512: String
+}
+
+impl Clone for ModrinthFileHash {
+    fn clone(&self) -> Self {
+        ModrinthFileHash {
+            sha512: self.sha512.clone()
         }
     }
 }
@@ -276,11 +286,18 @@ pub async fn download_file(
         .await?
         .bytes()
         .await?;
-    let mut f_out = fs::File::create(
-        out_dir.join(f_in.filename())
-    )?;
-    f_out.write_all(&res)?;
-    println!("Successfully downloaded {}", f_in.filename());
+    let file_hash = Sha512::digest(&res);
+    let expected_hash = hex::decode(&f_in.hashes.sha512)?;
+    if &expected_hash[..] == &file_hash[..] {
+        println!("Hashes match. Downloading...");
+        let mut f_out = fs::File::create(
+            out_dir.join(f_in.filename())
+        )?;
+        f_out.write_all(&res)?;
+        println!("Successfully downloaded {}", f_in.filename());
+    } else {
+        println!("WARNING: Hashes do not match for file '{}'. Skipping download.", f_in.filename())
+    }
     Ok(())
 }
 

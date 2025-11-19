@@ -151,7 +151,7 @@ impl VersionQuery {
         let mut res: String = String::from("[");
         res = format!("{}\"{}\"",
             res,
-            params.next().expect("param shouldn't be empty"),
+            params.next().unwrap_or(""),
         );
         while let Some(prm) = params.next() {
             res = format!("{},\"{}\"",
@@ -159,7 +159,7 @@ impl VersionQuery {
                 prm,
             );
         }
-        format!("{}{}", res, "]")
+        format!("{}]", res)
     }
     pub fn build_query(user_mcvs: &String, user_loader: &String) -> VersionQuery {
         let game_versions= Self::build_param_array(user_mcvs);

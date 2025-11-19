@@ -68,3 +68,17 @@ fn build_modrinth_query() {
     assert_eq!(query.mcvs(), "[\"1.21.9\",\"1.21.10\"]");
     assert_eq!(query.loader(), "[\"fabric\"]");
 }
+
+#[test]
+fn build_modrinth_query_from_empty() {
+    let query = VersionQuery::build_query(&String::from(""), &String::from(""));
+    assert_eq!(query.mcvs(), "[\"\"]");
+    assert_eq!(query.loader(), "[\"\"]");
+}
+
+#[test]
+fn build_modrinth_query_from_random() {
+    let query = VersionQuery::build_query(&String::from("sba,d,ugyu,,,,w,asd"), &String::from("asd,asd,f,a,,s,w,das,d,"));
+    assert_eq!(query.mcvs(), "[\"sba\",\"d\",\"ugyu\",\"\",\"\",\"\",\"w\",\"asd\"]");
+    assert_eq!(query.loader(), "[\"asd\",\"asd\",\"f\",\"a\",\"\",\"s\",\"w\",\"das\",\"d\",\"\"]");
+}

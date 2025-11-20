@@ -2,7 +2,8 @@ use std::{fmt, fs};
 use std::io::{Write};
 use std::path::PathBuf;
 use futures::future;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Deserializer};
+use serde::de::{Error};
 use sha2::{Sha512, Digest};
 
 static MODRINTH_URL: &str = "https://api.modrinth.com";
@@ -128,7 +129,8 @@ impl Clone for ModrinthFile {
 
 #[derive(Deserialize)]
 struct ModrinthFileHash {
-    sha512: String
+    #[serde(deserialize_with = "deserialize_hex_str_to_bytes")]
+    sha512: Vec<u8>
 }
 
 impl Clone for ModrinthFileHash {
@@ -137,6 +139,15 @@ impl Clone for ModrinthFileHash {
             sha512: self.sha512.clone()
         }
     }
+}
+
+fn deserialize_hex_str_to_bytes<'de, D>(
+    deserializer: D
+) -> Result<Vec<u8>, D::Error>
+    where D: Deserializer<'de>
+{
+    let hex_data: String = Deserialize::deserialize(deserializer)?;
+    hex::decode(hex_data).map_err(D::Error::custom)
 }
 
 #[derive(Serialize)]
@@ -287,8 +298,7 @@ pub async fn download_file(
         .bytes()
         .await?;
     let file_hash = Sha512::digest(&res);
-    let expected_hash = hex::decode(&f_in.hashes.sha512)?;
-    if &expected_hash[..] == &file_hash[..] {
+    if &f_in.hashes.sha512[..] == &file_hash[..] {
         println!("Hashes match. Downloading...");
         let mut f_out = fs::File::create(
             out_dir.join(f_in.filename())

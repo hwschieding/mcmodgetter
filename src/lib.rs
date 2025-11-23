@@ -86,6 +86,22 @@ pub async fn modrinth_download_from_id<'a>(
     Ok(())
 }
 
+async fn collect_modrinth_files(
+    client: &reqwest::Client,
+    ids: &Vec<String>,
+    query: &modrinth::VersionQuery
+) -> Vec<Option<ModrinthFile>>
+{
+    let mut file_results  = Vec::new();
+    for id in ids {
+        println!("Getting ID '{id}'...");
+        file_results.push(
+            modrinth::get_file_direct(client, id, &query)
+        )
+    }
+    future::join_all(file_results).await
+}
+
 async fn collect_modrinth_downloads(
     client: &reqwest::Client,
     files: &Vec<Option<ModrinthFile>>,
@@ -114,14 +130,7 @@ pub async fn modrinth_download_from_id_list<'a>(
         conf.mcvs(), 
         &conf.loader_as_string()
     );
-    let mut file_results  = Vec::new();
-    for id in ids {
-        println!("Getting ID '{id}'...");
-        file_results.push(
-            modrinth::get_file_direct(client, id, &query)
-        )
-    }
-    let mod_files = future::join_all(file_results).await;
+    let mod_files = collect_modrinth_files(client, ids, &query).await;
     let downloads = collect_modrinth_downloads(
         client,
         &mod_files,
@@ -134,6 +143,59 @@ pub async fn modrinth_download_from_id_list<'a>(
         println!("Download error: {err}")
     }
     Ok(())
+}
+
+pub async fn modrinth_verify_id<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    id: &String,
+    out_dir: &PathBuf
+) -> () {
+    let query: modrinth::VersionQuery = modrinth::VersionQuery::build_query(
+        &conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    if let Some(f) = get_file_direct(&client, &id, &query).await {
+        if modrinth::verify_file(&f, &out_dir) {
+            println!("Successfully verified file {}", f.filename());
+        }
+        else {
+            println!("Unable to verify file {}", f.filename());
+        }
+    };
+    ()
+}
+
+pub async fn modrinth_verify_ids_from_list<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: &PathBuf
+) -> () {
+    let query: modrinth::VersionQuery = modrinth::VersionQuery::build_query(
+        &conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    let mod_files: Vec<ModrinthFile> = collect_modrinth_files(client, ids, &query)
+        .await
+        .into_iter()
+        .filter_map(|f| f)
+        .collect();
+    let mut bad_results: u32 = 0;
+    for f in &mod_files {
+        if modrinth::verify_file(&f, out_dir){
+            println!("Successfully verified file {}", f.filename());
+        } else {
+            println!("Unable to verify file {}", f.filename());
+            bad_results += 1;
+        }
+    };
+    if bad_results > 0 {
+        println!("\n{} out of {} files were unable to be verified", bad_results, mod_files.len());
+    } else {
+        println!("\nAll files verified successfully");
+    };
+    ()
 }
 
 pub fn vec_from_lines(filename: &Path) -> io::Result<Vec<String>> {

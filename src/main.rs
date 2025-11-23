@@ -2,12 +2,7 @@ use std::{env, process};
 use std::error::Error;
 use std::io;
 
-use mcmodgetter::{create_client,
-    clear_dir,
-    get_out_dir,
-    modrinth_download_from_id,
-    modrinth_download_from_id_list,
-    vec_from_lines
+use mcmodgetter::{clear_dir, create_client, get_out_dir, modrinth_download_from_id, modrinth_download_from_id_list, modrinth_verify_id, modrinth_verify_ids_from_list, vec_from_lines
 };
 use mcmodgetter::arguments::{Config, AppMode};
 
@@ -33,19 +28,37 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
     match conf.mode() {
         AppMode::IdFromFile(filename) => {
             let ids = vec_from_lines(filename)?;
-            modrinth_download_from_id_list(
-                &conf,
-                &client,
-                &ids,
-                &out_dir
-            ).await?;
+            if conf.verify() {
+                modrinth_verify_ids_from_list(
+                    &conf,
+                    &client,
+                    &ids,
+                    &out_dir
+                ).await;
+            } else {
+                modrinth_download_from_id_list(
+                    &conf,
+                    &client,
+                    &ids,
+                    &out_dir
+                ).await?;
+            };
         },
         AppMode::SingleId(id) => {
-            modrinth_download_from_id(&conf,
-                &client,
-                id,
-                &out_dir
-            ).await?;
+            if conf.verify() {
+                modrinth_verify_id(
+                    &conf,
+                    &client,
+                    &id,
+                    &out_dir
+                ).await;
+            } else {
+                modrinth_download_from_id(&conf,
+                    &client,
+                    id,
+                    &out_dir
+                ).await?;
+            };
         },
         AppMode::ClearMods => {
             println!("Delete everything in directory {}? (y/n)",
@@ -56,7 +69,7 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
             if user_ans.trim().to_lowercase() == "y" {
                 clear_dir(&out_dir)?;
             }
-        },
+        }
     };
     Ok(())
 }

@@ -14,6 +14,7 @@ pub enum Loader {
 
 pub struct Config<'a> {
     mode: AppMode<'a>,
+    verify: bool,
     mcvs: String,
     loader: Loader,
     out_dir: Option<&'a Path>,
@@ -22,6 +23,7 @@ pub struct Config<'a> {
 impl<'a> Config<'a> {
     pub fn build_from_args(args: &'a Vec<String>) -> Result<Config<'a>, &'static str> {
         let mut mode: Result<AppMode, &'static str> = Err("No ID specified");
+        let mut verify: bool = false;
         let mut mcvs: Result<String, &'static str> = Err("No mc version specified");
         let mut loader: Loader = Loader::Fabric;
         let mut out_dir: Option<&Path> = None;
@@ -35,6 +37,7 @@ impl<'a> Config<'a> {
                 "-l" => loader = get_loader(args_iter.next())?,
                 "-o" => out_dir = Some(get_out_dir(args_iter.next())?),
                 "clearmods" => mode = Ok(AppMode::ClearMods),
+                "checkmods" => verify = true,
                 _ => println!("arg '{arg}' not recognized")
             }
         };
@@ -43,10 +46,13 @@ impl<'a> Config<'a> {
             AppMode::ClearMods => String::new(),
             _ => mcvs?
         };
-        Ok(Config { mode, mcvs, loader, out_dir })
+        Ok(Config { mode, verify, mcvs, loader, out_dir })
     }
     pub fn mode(&self) -> &AppMode<'a> {
         &self.mode
+    }
+    pub fn verify(&self) -> bool {
+        self.verify
     }
     pub fn mcvs(&self) -> &String {
         &self.mcvs

@@ -356,3 +356,17 @@ pub fn collect_versions(results: Vec<Result<Version, VersionError>>) -> Vec<Vers
     }
     out
 }
+
+pub fn verify_file(mfile: &ModrinthFile, out_dir: &PathBuf) -> bool{
+    let file_path = out_dir.join(mfile.filename());
+    if !path::Path::exists(&file_path) {
+        return false;
+    };
+    match fs::read(&file_path) {
+        Ok(bytes) => {
+            let file_hash = Sha512::digest(bytes);
+            mfile.hashes.sha512[..] == file_hash[..]
+        },
+        Err(_) => false
+    }
+}

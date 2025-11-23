@@ -1,6 +1,6 @@
 use std::{fmt, fs};
 use std::io::{Write};
-use std::path::PathBuf;
+use std::path::{self, PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
@@ -286,12 +286,45 @@ pub async fn get_file_direct(
     }
 }
 
+fn download_already_exists(file_path: &PathBuf, f_in: &ModrinthFile) -> bool {
+    if path::Path::exists(&file_path) {
+        match fs::read(&file_path) {
+            Ok(bytes) => {
+                let file_hash = Sha512::digest(bytes);
+                if &f_in.hashes.sha512[..] == &file_hash[..] {
+                    println!("File {} already here, skipping download...",
+                        f_in.filename()
+                    );
+                    return true;
+                } else {
+                    println!("Filename {} already here, {}", 
+                        f_in.filename(),
+                        "but hashes do not match. Redownloading..."
+                    );
+                    return false;
+                }
+            }
+            Err(e) => {
+                println!("Filename {} already found, but something went wrong ({e}). Redownloading...",
+                    f_in.filename()
+                );
+                return false;
+            }
+        }
+    }
+    return false;
+}
+
 pub async fn download_file(
     client: &reqwest::Client,
     f_in: &ModrinthFile,
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>> 
 {
+    let file_path = out_dir.join(f_in.filename());
+    if download_already_exists(&file_path, &f_in) {
+        return Ok(())
+    }
     let res = client.get(f_in.url())
         .send()
         .await?

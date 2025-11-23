@@ -1,8 +1,12 @@
 use std::{env, process};
 use std::error::Error;
-use std::io;
 
-use mcmodgetter::{clear_dir, create_client, get_out_dir, modrinth_download_from_id, modrinth_download_from_id_list, modrinth_verify_id, modrinth_verify_ids_from_list, vec_from_lines
+use mcmodgetter::{
+    clear_mods,
+    create_client,
+    get_out_dir,
+    id_from_file,
+    single_id
 };
 use mcmodgetter::arguments::{Config, AppMode};
 
@@ -27,48 +31,23 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
     let out_dir = get_out_dir(&conf.out_dir())?;
     match conf.mode() {
         AppMode::IdFromFile(filename) => {
-            let ids = vec_from_lines(filename)?;
-            if conf.verify() {
-                modrinth_verify_ids_from_list(
-                    &conf,
-                    &client,
-                    &ids,
-                    &out_dir
-                ).await;
-            } else {
-                modrinth_download_from_id_list(
-                    &conf,
-                    &client,
-                    &ids,
-                    &out_dir
-                ).await?;
-            };
+            id_from_file(
+                &conf,
+                &client,
+                &filename, 
+                &out_dir
+            ).await?;
         },
         AppMode::SingleId(id) => {
-            if conf.verify() {
-                modrinth_verify_id(
-                    &conf,
-                    &client,
-                    &id,
-                    &out_dir
-                ).await;
-            } else {
-                modrinth_download_from_id(&conf,
-                    &client,
-                    id,
-                    &out_dir
-                ).await?;
-            };
+            single_id(
+                &conf,
+                &client,
+                &id,
+                &out_dir
+            ).await?;
         },
         AppMode::ClearMods => {
-            println!("Delete everything in directory {}? (y/n)",
-                &out_dir.display()
-            );
-            let mut user_ans = String::new();
-            io::stdin().read_line(&mut user_ans)?;
-            if user_ans.trim().to_lowercase() == "y" {
-                clear_dir(&out_dir)?;
-            }
+            clear_mods(&out_dir)?;
         }
     };
     Ok(())

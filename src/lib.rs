@@ -24,6 +24,71 @@ const APP_USER_AGENT: &str = concat!(
     " (https://github.com/hwschieding/mcmodgetter)"
 );
 
+pub async fn id_from_file<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    filename: &Path,
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    let ids = vec_from_lines(filename)?;
+    if conf.verify() {
+        modrinth_verify_ids_from_list(
+            &conf,
+            &client,
+            &ids,
+            &out_dir
+        ).await;
+    } else {
+        modrinth_download_from_id_list(
+            &conf,
+            &client,
+            &ids,
+            &out_dir
+        ).await?;
+    };
+    Ok(())
+}
+
+pub async fn single_id<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    id: &String,
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    if conf.verify() {
+        modrinth_verify_id(
+            &conf,
+            &client,
+            &id,
+            &out_dir
+        ).await;
+    } else {
+        modrinth_download_from_id(&conf,
+            &client,
+            id,
+            &out_dir
+        ).await?;
+    };
+    Ok(())
+}
+
+pub fn clear_mods(
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    println!("Delete everything in directory {}? (y/n)",
+        &out_dir.display()
+    );
+    let mut user_ans = String::new();
+    io::stdin().read_line(&mut user_ans)?;
+    if user_ans.trim().to_lowercase() == "y" {
+        clear_dir(&out_dir)?;
+    }
+    Ok(())
+}
+
 pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
@@ -47,7 +112,7 @@ fn remove_entry(entry: &DirEntry) -> io::Result<()> {
     Ok(())
 }
 
-pub fn clear_dir(out_dir: &PathBuf) -> io::Result<()>{
+fn clear_dir(out_dir: &PathBuf) -> io::Result<()>{
     println!("Clearing folder {}...", out_dir.display());
     for entry in fs::read_dir(out_dir)? {
         match entry {
@@ -66,7 +131,7 @@ pub fn clear_dir(out_dir: &PathBuf) -> io::Result<()>{
     Ok(())
 }
 
-pub async fn modrinth_download_from_id<'a>(
+async fn modrinth_download_from_id<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
     id: &str,
@@ -119,7 +184,7 @@ async fn collect_modrinth_downloads(
     future::join_all(download_tasks).await
 }
 
-pub async fn modrinth_download_from_id_list<'a>(
+async fn modrinth_download_from_id_list<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
     ids: &Vec<String>,
@@ -145,7 +210,7 @@ pub async fn modrinth_download_from_id_list<'a>(
     Ok(())
 }
 
-pub async fn modrinth_verify_id<'a>(
+async fn modrinth_verify_id<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
     id: &String,
@@ -166,7 +231,7 @@ pub async fn modrinth_verify_id<'a>(
     ()
 }
 
-pub async fn modrinth_verify_ids_from_list<'a>(
+async fn modrinth_verify_ids_from_list<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
     ids: &Vec<String>,
@@ -198,7 +263,7 @@ pub async fn modrinth_verify_ids_from_list<'a>(
     ()
 }
 
-pub fn vec_from_lines(filename: &Path) -> io::Result<Vec<String>> {
+fn vec_from_lines(filename: &Path) -> io::Result<Vec<String>> {
     let mut out = Vec::new();
     let f_in = File::open(filename)?;
     for reader_line in io::BufReader::new(f_in).lines() {

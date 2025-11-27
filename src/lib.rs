@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 mod tests;
 pub mod modrinth;
 pub mod arguments;
-pub mod mmg_parse;
+pub mod file_parse;
 
 const DEFAULT_OUT_DIR: &str = "mods";
 const APP_USER_AGENT: &str = concat!(
@@ -24,15 +24,11 @@ pub async fn id_from_file<'a>(
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    let ids: mmg_parse::FileIDs;
-    if let Some(ext) = filename.extension() && ext == mmg_parse::FILE_EXT {
-        println!("Parsing .mmg file!");
-        ids = mmg_parse::parse_ids(filename)?;
-    } else {
-        println!("Parsing some other filetype");
-        ids = mmg_parse::parse_ids_txt(filename)?;
-    }
+    println!("Parsing file '{}'...", filename.display());
+    let ids = file_parse::parse_ids(filename)?;
+
     if let Some(modrinth_ids) = ids.modrinth() {
+        println!("Handling modrinth ids...");
         modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
     };
     if let Some(curse_ids) = ids.curseforge() {

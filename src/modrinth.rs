@@ -457,9 +457,12 @@ async fn verify_ids_from_list<'a>(
         }
     };
     if bad_results > 0 {
-        println!("\n{} out of {} files were unable to be verified", bad_results, mod_files.len());
+        println!("\n{} out of {} modrinth files were unable to be verified",
+            bad_results,
+            mod_files.len()
+        );
     } else {
-        println!("\nAll files verified successfully");
+        println!("\nAll modrinth files verified successfully");
     };
     ()
 }

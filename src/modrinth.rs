@@ -6,6 +6,8 @@ use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
 use sha2::{Sha512, Digest};
 
+use crate::arguments;
+
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 
 #[derive(Debug)]
@@ -369,4 +371,185 @@ pub fn verify_file(mfile: &ModrinthFile, out_dir: &PathBuf) -> bool{
         },
         Err(_) => false
     }
+}
+
+async fn collect_files(
+    client: &reqwest::Client,
+    ids: &Vec<String>,
+    query: &VersionQuery
+) -> Vec<Option<ModrinthFile>>
+{
+    let mut file_results  = Vec::new();
+    for id in ids {
+        println!("Getting ID '{id}'...");
+        file_results.push(
+            get_file_direct(client, id, &query)
+        )
+    }
+    future::join_all(file_results).await
+}
+
+async fn collect_downloads(
+    client: &reqwest::Client,
+    files: &Vec<Option<ModrinthFile>>,
+    out_dir: &PathBuf
+) -> Vec<Result<(), Box<dyn std::error::Error>>>
+{
+    let mut download_tasks = Vec::new();
+    for file in files {
+        if let Some(f) = file {
+            download_tasks.push(
+                download_file(client, f, out_dir)
+            )
+        }
+    }
+    future::join_all(download_tasks).await
+}
+
+async fn download_from_id_list<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    let query: VersionQuery = VersionQuery::build_query(
+        conf.mcvs(), 
+        &conf.loader_as_string()
+    );
+    let mod_files = collect_files(client, ids, &query).await;
+    let downloads = collect_downloads(
+        client,
+        &mod_files,
+        &out_dir
+    ).await;
+    let download_errors: Vec<Box<dyn std::error::Error>> = downloads.into_iter()
+        .filter_map(Result::err)
+        .collect();
+    for err in download_errors {
+        println!("Download error: {err}")
+    }
+    Ok(())
+}
+
+async fn verify_ids_from_list<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: &PathBuf
+) -> () {
+    let query: VersionQuery = VersionQuery::build_query(
+        &conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    let mod_files: Vec<ModrinthFile> = collect_files(client, ids, &query)
+        .await
+        .into_iter()
+        .filter_map(|f| f)
+        .collect();
+    let mut bad_results: u32 = 0;
+    for f in &mod_files {
+        if verify_file(&f, out_dir){
+            println!("Successfully verified file {}", f.filename());
+        } else {
+            println!("Unable to verify file {}", f.filename());
+            bad_results += 1;
+        }
+    };
+    if bad_results > 0 {
+        println!("\n{} out of {} files were unable to be verified", bad_results, mod_files.len());
+    } else {
+        println!("\nAll files verified successfully");
+    };
+    ()
+}
+
+
+async fn download_from_id<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    id: &str,
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    let query = VersionQuery::build_query(
+        conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    if let Some(file) = get_file_direct(client, id, &query).await {
+        download_file(client, &file, out_dir).await?
+    } else {
+        println!("No file available for id {id}")
+    };
+
+    Ok(())
+}
+
+async fn verify_id<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    id: &str,
+    out_dir: &PathBuf
+) -> () {
+    let query: VersionQuery = VersionQuery::build_query(
+        &conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    if let Some(f) = get_file_direct(&client, &id, &query).await {
+        if verify_file(&f, &out_dir) {
+            println!("Successfully verified file {}", f.filename());
+        }
+        else {
+            println!("Unable to verify file {}", f.filename());
+        }
+    };
+    ()
+}
+
+pub async fn handle_list_input<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    id_list: &Vec<String>,
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn std::error::Error>> {
+    if conf.verify() {
+            verify_ids_from_list(
+                conf,
+                client,
+                id_list,
+                out_dir
+            ).await;
+        } else {
+            download_from_id_list(
+                conf,
+                client,
+                id_list,
+                out_dir
+            ).await?;
+        };
+    Ok(())
+}
+
+pub async fn handle_single_input<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    id: &str,
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn std::error::Error>> {
+    if conf.verify() {
+        verify_id(
+            conf,
+            client,
+            id,
+            out_dir
+        ).await;
+    } else {
+        download_from_id(
+            conf,
+            client,
+            id,
+            out_dir
+        ).await?;
+    };
+    Ok(())
 }

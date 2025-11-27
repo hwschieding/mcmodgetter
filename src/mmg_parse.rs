@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
-pub static FILE_EXT: &str = ".mmg";
+pub static FILE_EXT: &'static str = "mmg";
 
 pub enum IdType<'a> {
     Modrinth(&'a str),
@@ -26,6 +26,15 @@ impl FileIDs {
         };
         FileIDs { modrinth, curseforge }
     }
+
+    pub fn build_modrinth_only(ids: Vec<String>) -> FileIDs {
+        let modrinth = match ids.len() {
+            0 => None,
+            _ => Some(ids)
+        };
+        let curseforge = None;
+        FileIDs { modrinth, curseforge }
+    }
     
     pub fn modrinth(&self) -> &Option<Vec<String>> {
         &self.modrinth
@@ -36,14 +45,14 @@ impl FileIDs {
     }
 }
 
-pub fn parse_ids<'a>(mmg_filepath: &Path) -> io::Result<FileIDs> {
+pub fn parse_ids(mmg_filepath: &Path) -> io::Result<FileIDs> {
     let mut modrinth_ids: Vec<String> = Vec::new();
     let mut curse_ids: Vec<String> = Vec::new();
 
     let f_in = File::open(mmg_filepath)?;
     let reader = BufReader::new(f_in);
-    for line_result in reader.lines() {
-        let line = line_result?;
+    for line_res in reader.lines() {
+        let line = line_res?;
         if let Some(val) = parse_mmg_line(&line){
             match val {
                 IdType::Modrinth(id) => { modrinth_ids.push(String::from(id)); },
@@ -69,4 +78,15 @@ pub fn parse_mmg_line<'a>(line: &'a String) -> Option<IdType<'a>> {
     } else {
         Some(IdType::Modrinth(id))
     }
+}
+
+pub fn parse_ids_txt(txt_filepath: &Path) -> io::Result<FileIDs> {
+    let mut ids: Vec<String> = Vec::new();
+    let f_in = File::open(txt_filepath)?;
+    let reader = BufReader::new(f_in);
+    for line_res in reader.lines() {
+        let line = line_res?;
+        ids.push(line);
+    };
+    Ok(FileIDs::build_modrinth_only(ids))
 }

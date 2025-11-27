@@ -14,6 +14,7 @@ use crate::modrinth::{
 mod tests;
 pub mod modrinth;
 pub mod arguments;
+pub mod mmg_parse;
 
 const DEFAULT_OUT_DIR: &str = "mods";
 const APP_USER_AGENT: &str = concat!(

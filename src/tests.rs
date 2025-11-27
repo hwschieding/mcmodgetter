@@ -82,3 +82,20 @@ fn build_modrinth_query_from_random() {
     assert_eq!(query.mcvs(), "[\"sba\",\"d\",\"ugyu\",\"\",\"\",\"\",\"w\",\"asd\"]");
     assert_eq!(query.loader(), "[\"asd\",\"asd\",\"f\",\"a\",\"\",\"s\",\"w\",\"das\",\"d\",\"\"]");
 }
+
+#[test]
+fn parse_line_from_mmg_file() {
+    let curse_line = String::from("349239 -curse");
+    let modrinth_line1 = String::from("SRlzjEBS -modrinth");
+    let modrinth_line2 = String::from("SRlzjEBS");
+    let curse_parse = mmg_parse::parse_mmg_line(&curse_line).expect("should be some");
+    let modrinth_parse1 = mmg_parse::parse_mmg_line(&modrinth_line1).expect("should be some");
+    let modrinth_parse2 = mmg_parse::parse_mmg_line(&modrinth_line2).expect("should be some");
+    assert!(matches!(curse_parse, mmg_parse::IdType::Curseforge("349239")));
+    assert!(matches!(modrinth_parse1, mmg_parse::IdType::Modrinth("SRlzjEBS")));
+    assert!(matches!(modrinth_parse2, mmg_parse::IdType::Modrinth("SRlzjEBS")));
+
+    let empty = String::new();
+    let empty_parse = mmg_parse::parse_mmg_line(&empty).expect("should be some");
+    assert!(matches!(empty_parse, mmg_parse::IdType::Modrinth("")));
+}

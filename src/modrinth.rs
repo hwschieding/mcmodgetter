@@ -359,17 +359,28 @@ pub fn collect_versions(results: Vec<Result<Version, VersionError>>) -> Vec<Vers
     out
 }
 
-pub fn verify_file(mfile: &ModrinthFile, out_dir: &PathBuf) -> bool{
+enum FileVerification {
+    Ok,
+    NotExists,
+    BadHash,
+    BadFile
+}
+
+fn verify_file(mfile: &ModrinthFile, out_dir: &PathBuf) -> FileVerification{
     let file_path = out_dir.join(mfile.filename());
     if !path::Path::exists(&file_path) {
-        return false;
+        return FileVerification::NotExists;
     };
     match fs::read(&file_path) {
         Ok(bytes) => {
             let file_hash = Sha512::digest(bytes);
-            mfile.hashes.sha512[..] == file_hash[..]
+            if mfile.hashes.sha512[..] == file_hash[..] {
+                FileVerification::Ok
+            } else {
+                FileVerification::BadHash
+            }
         },
-        Err(_) => false
+        Err(_) => FileVerification::BadFile
     }
 }
 
@@ -449,11 +460,14 @@ async fn verify_ids_from_list<'a>(
         .collect();
     let mut bad_results: u32 = 0;
     for f in &mod_files {
-        if verify_file(&f, out_dir){
-            println!("Successfully verified file {}", f.filename());
-        } else {
-            println!("Unable to verify file {}", f.filename());
-            bad_results += 1;
+        match verify_file(&f, out_dir) {
+            FileVerification::Ok => {
+                println!("Successfully verified file {}", f.filename());
+            },
+            _ => {
+                println!("Unable to verify file {}", f.filename());
+                bad_results += 1;
+            }
         }
     };
     if bad_results > 0 {
@@ -499,11 +513,13 @@ async fn verify_id<'a>(
         &conf.loader_as_string()
     );
     if let Some(f) = get_file_direct(&client, &id, &query).await {
-        if verify_file(&f, &out_dir) {
-            println!("Successfully verified file {}", f.filename());
-        }
-        else {
-            println!("Unable to verify file {}", f.filename());
+        match verify_file(&f, out_dir) {
+            FileVerification::Ok => {
+                println!("Successfully verified file {}", f.filename());
+            },
+            _ => {
+                println!("Unable to verify file {}", f.filename());
+            }
         }
     };
     ()

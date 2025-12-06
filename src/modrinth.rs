@@ -65,7 +65,9 @@ pub struct Version {
     project_id: String,
     name: String,
     version_number: String,
-    files: Vec<ModrinthFile>
+    files: Vec<ModrinthFile>,
+    #[serde(deserialize_with = "deserialize_only_required_deps")]
+    dependencies: Vec<RequiredDependency>
 }
 
 impl Version {
@@ -84,6 +86,9 @@ impl Version {
     pub fn files(&self) -> &Vec<ModrinthFile> {
         &self.files
     }
+    pub fn dependencies(&self) -> &Vec<RequiredDependency> {
+        &self.dependencies
+    }
 }
 
 impl Clone for Version {
@@ -93,9 +98,64 @@ impl Clone for Version {
             project_id: self.project_id.clone(),
             name: self.name.clone(),
             version_number: self.version_number.clone(),
-            files: self.files.clone()
+            files: self.files.clone(),
+            dependencies: self.dependencies.clone()
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct Dependency {
+    version_id: Option<String>,
+    project_id: Option<String>,
+    dependency_type: String
+}
+
+pub struct RequiredDependency {
+    version_id: Option<String>,
+    project_id: Option<String>,
+}
+
+impl RequiredDependency {
+    pub fn from_dep(dep: Dependency) -> Self {
+        RequiredDependency {
+            version_id: dep.version_id,
+            project_id: dep.project_id
+        }
+    }
+    pub fn version_id(&self) -> &Option<String> {
+        &self.version_id
+    }
+    pub fn project_id(&self) -> &Option<String> {
+        &self.project_id
+    }
+}
+
+impl Clone for RequiredDependency {
+    fn clone(&self) -> Self {
+        RequiredDependency {
+            version_id: self.version_id.clone(),
+            project_id: self.project_id.clone(),
+        }
+    }
+}
+
+fn deserialize_only_required_deps<'de, D>(
+    deserializer: D
+) -> Result<Vec<RequiredDependency>, D::Error> 
+    where D: Deserializer<'de>
+{
+    let deps: Vec<Dependency> = Deserialize::deserialize(deserializer)?;
+    Ok (deps.into_iter()
+        .filter_map(|d|
+            if d.dependency_type == "required" {
+                Some(RequiredDependency::from_dep(d))
+            } else {
+                None
+            }
+        )
+        .collect()
+    )
 }
 
 #[derive(Deserialize)]

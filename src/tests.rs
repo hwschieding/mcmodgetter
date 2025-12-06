@@ -50,6 +50,22 @@ async fn get_top_version_sodium() {
 }
 
 #[tokio::test]
+async fn get_top_version_capes_with_dependencies() {
+    let client = create_client().expect("Client should be created");
+    let query = VersionQuery::build_query(
+        &String::from("1.21.8"), 
+        &String::from("fabric")
+    );
+    let v = get_top_version(&client, "89Wsn8GD", &query).await.expect("Should work");
+    assert_eq!(v.id(), "GRuX8d2G");
+    assert_eq!(v.name(), "[Fabric 1.21.6-8] Capes 1.5.9");
+    let _p_id1 = String::from("P7dR8mSH");
+    let _p_id2 = String::from("Ha28R6CL");
+    assert!(matches!(v.dependencies()[0].project_id(), Some(_p_id1)));
+    assert!(matches!(v.dependencies()[1].project_id(), Some(_p_id2)));
+}
+
+#[tokio::test]
 async fn get_primary_file_for_latest_sodium() {
     let client = create_client().expect("Client should be created");
     let query = VersionQuery::build_query(

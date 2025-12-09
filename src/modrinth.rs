@@ -1,4 +1,4 @@
-use std::{fmt, fs};
+use std::{fmt, fs, error};
 use std::io::{Write};
 use std::path::{self, PathBuf};
 use futures::future;
@@ -11,22 +11,24 @@ use crate::arguments;
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 
 #[derive(Debug)]
-pub enum VersionError {
+pub enum ModError {
+    NoFile(String),
     BadRequest(reqwest::Error),
-    NoVersion(&'static str),
+    NoVersion(String),
 }
 
-impl fmt::Display for VersionError {
-    fn fmt(&self, f:& mut fmt::Formatter) -> fmt::Result {
+impl fmt::Display for ModError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::BadRequest(err) => write!(f, "Couldn't get versions: {}", err),
-            Self::NoVersion(msg) => write!(f, "{}", msg)
+            Self::NoFile(msg) => write!(f, "[MODRINTH] No file: {}", msg),
+            Self::BadRequest(err) => write!(f, "[MODRINTH] Bad request: {}", err),
+            Self::NoVersion(msg) => write!(f, "[MODRINTH] No version: {}", msg),
         }
     }
 }
 
-impl std::error::Error for VersionError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl error::Error for ModError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Self::BadRequest(err) => Some(err),
             _ => None
@@ -34,9 +36,50 @@ impl std::error::Error for VersionError {
     }
 }
 
-impl From<reqwest::Error> for VersionError {
+impl From<reqwest::Error> for ModError {
     fn from(value: reqwest::Error) -> Self {
         Self::BadRequest(value)
+    }
+}
+
+pub struct Mod {
+    title: String,
+    project_id: String,
+    version_name: String,
+    version_id: String,
+    file: ModrinthFile,
+    // dependencies: Vec<Mod>,
+}
+
+
+impl Mod {
+    pub fn title(&self) -> &String {
+        &self.title
+    }
+    pub fn version_name(&self) -> &String {
+        &self.version_name
+    }
+    pub fn filename(&self) -> &String {
+        self.file.filename()
+    }
+    pub async fn build_from_api(
+        client: &reqwest::Client,
+        project_id: String,
+        query: &VersionQuery
+    ) -> Result<Self, ModError> {
+        let proj = get_project(client, &project_id).await?;
+        let top_version = get_top_version(client, &project_id, query).await?;
+        let primary_file_idx = search_for_primary_file(top_version.files())
+            .ok_or(ModError::NoFile(
+                format!("Couldn't find a file for project {}", proj.get_title())
+            ))?;
+        
+        let title = proj.get_title().clone();
+        let version_name = top_version.name().clone();
+        let version_id = top_version.id().clone();
+        let file = top_version.files()[primary_file_idx].clone();
+
+        Ok(Mod{title, project_id, version_name, version_id, file})
     }
 }
 
@@ -211,7 +254,6 @@ fn deserialize_hex_str_to_bytes<'de, D>(
     let hex_data: String = Deserialize::deserialize(deserializer)?;
     hex::decode(hex_data).map_err(D::Error::custom)
 }
-
 #[derive(Serialize)]
 pub struct VersionQuery {
     game_versions: String,
@@ -294,14 +336,15 @@ pub async fn get_top_version(
     client: & reqwest::Client,
     project_id: &str,
     query: &VersionQuery
-) -> Result<Version, VersionError>
+) -> Result<Version, ModError>
 {
     let response = get_version(client, project_id, query).await?;
     match response.get(0).cloned() {
         Some(v) => Ok(v),
         None => {
-            eprintln!("No suitable version for id {project_id}");
-            Err(VersionError::NoVersion("No version available"))
+            Err(ModError::NoVersion(
+                format!("No version found for id {project_id}")
+            ))
         }
     }
 }
@@ -383,7 +426,7 @@ pub async fn download_file(
     client: &reqwest::Client,
     f_in: &ModrinthFile,
     out_dir: &PathBuf
-) -> Result<(), Box<dyn std::error::Error>> 
+) -> Result<(), Box<dyn error::Error>> 
 {
     let file_path = out_dir.join(f_in.filename());
     if download_already_exists(&file_path, &f_in) {
@@ -408,7 +451,7 @@ pub async fn download_file(
     Ok(())
 }
 
-pub fn collect_versions(results: Vec<Result<Version, VersionError>>) -> Vec<Version> {
+pub fn collect_versions(results: Vec<Result<Version, ModError>>) -> Vec<Version> {
     let mut out: Vec<Version> = Vec::new();
     for res in results {
         match res {
@@ -464,7 +507,7 @@ async fn collect_downloads(
     client: &reqwest::Client,
     files: &Vec<Option<ModrinthFile>>,
     out_dir: &PathBuf
-) -> Vec<Result<(), Box<dyn std::error::Error>>>
+) -> Vec<Result<(), Box<dyn error::Error>>>
 {
     let mut download_tasks = Vec::new();
     for file in files {
@@ -482,7 +525,7 @@ async fn download_from_id_list<'a>(
     client: &reqwest::Client,
     ids: &Vec<String>,
     out_dir: &PathBuf
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<(), Box<dyn error::Error>>
 {
     let query: VersionQuery = VersionQuery::build_query(
         conf.mcvs(), 
@@ -494,7 +537,7 @@ async fn download_from_id_list<'a>(
         &mod_files,
         &out_dir
     ).await;
-    let download_errors: Vec<Box<dyn std::error::Error>> = downloads.into_iter()
+    let download_errors: Vec<Box<dyn error::Error>> = downloads.into_iter()
         .filter_map(Result::err)
         .collect();
     for err in download_errors {
@@ -547,7 +590,7 @@ async fn download_from_id<'a>(
     client: &reqwest::Client,
     id: &str,
     out_dir: &PathBuf
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<(), Box<dyn error::Error>>
 {
     let query = VersionQuery::build_query(
         conf.mcvs(),
@@ -590,7 +633,7 @@ pub async fn handle_list_input<'a>(
     client: &reqwest::Client,
     id_list: &Vec<String>,
     out_dir: &PathBuf
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn error::Error>> {
     if conf.verify() {
             verify_ids_from_list(
                 conf,
@@ -614,7 +657,7 @@ pub async fn handle_single_input<'a>(
     client: &reqwest::Client,
     id: &str,
     out_dir: &PathBuf
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn error::Error>> {
     if conf.verify() {
         verify_id(
             conf,

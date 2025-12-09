@@ -115,3 +115,13 @@ fn parse_line_from_mmg_file() {
     let empty_parse = file_parse::parse_input_line(&empty).expect("should be some");
     assert!(matches!(empty_parse, file_parse::IdType::Modrinth("")));
 }
+
+#[tokio::test]
+async fn build_mod() {
+    let client = create_client().expect("Client should be created");
+    let query = VersionQuery::build_query(&String::from("1.21.8"), &String::from("fabric"));
+    let modrinth_mod = Mod::build_from_api(&client, String::from("uXXizFIs"), &query).await.expect("Should no errors");
+    assert_eq!(modrinth_mod.title(), "FerriteCore");
+    assert_eq!(modrinth_mod.filename(), "ferritecore-8.0.0-fabric.jar");
+    assert_eq!(modrinth_mod.version_name(), "ferritecore-8.0.0-fabric");
+}

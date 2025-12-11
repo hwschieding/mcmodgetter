@@ -1,10 +1,11 @@
 use std::pin::Pin;
 use std::{fmt, fs, error};
-use std::io::{Write};
+use std::io::{self, Write};
 use std::path::{self, PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
+use sha2::digest::generic_array::{ArrayLength, GenericArray};
 use sha2::{Sha512, Digest};
 
 use crate::arguments;
@@ -42,6 +43,45 @@ impl error::Error for ModError {
 impl From<reqwest::Error> for ModError {
     fn from(value: reqwest::Error) -> Self {
         Self::BadRequest(value)
+    }
+}
+
+#[derive(Debug)]
+pub enum DownloadError {
+    BadRequest(reqwest::Error),
+    BadFile(io::Error),
+    BadHash(String),
+}
+
+impl fmt::Display for DownloadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BadRequest(err) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad request: {}", err),
+            Self::BadFile(err) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad file: {}", err),
+            Self::BadHash(msg) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad hash: {}", msg),
+        }
+    }
+}
+
+impl error::Error for DownloadError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Self::BadRequest(err) => Some(err),
+            Self::BadFile(err) => Some(err),
+            _ => None
+        }
+    }
+}
+
+impl From<reqwest::Error> for DownloadError {
+    fn from(value: reqwest::Error) -> Self {
+        Self::BadRequest(value)
+    }
+}
+
+impl From<std::io::Error> for DownloadError {
+    fn from(value: std::io::Error) -> Self {
+        Self::BadFile(value)
     }
 }
 
@@ -120,6 +160,63 @@ impl Mod {
             format!("Couldn't find file for project {}", proj.get_title())
         ))?;
         Ok(Self::build(proj, ver, primary_file_idx))
+    }
+    pub fn verify_against(&self, file_path: &PathBuf) -> FileVerification {
+        if !path::Path::exists(&file_path) {
+            return FileVerification::NotExists
+        }
+        match fs::read(&file_path) {
+            Ok(bytes) => {
+                if self.file.hashes.check512(&Sha512::digest(bytes)) {
+                    FileVerification::Ok
+                } else {
+                    FileVerification::BadHash
+                }
+            }
+            Err(_) => FileVerification::BadFile
+        }
+    }
+    pub async fn download(
+        &self,
+        client: &reqwest::Client,
+        out_dir: &PathBuf
+    ) -> Result<(), DownloadError> {
+        let file_path = out_dir.join(self.filename());
+        match self.verify_against(&file_path){
+            FileVerification::Ok => {
+                println!("[MODRINTH/DOWNLOAD] {} already present. Skipping download...", self.title());
+                return Ok(());
+            }
+            FileVerification::BadHash => {
+                println!("[MODRINTH/DOWNLOAD/WARNING] File present for {}, but hashes do not match. Continuing with download...", self.title());
+            }
+            FileVerification::BadFile => {
+                println!("[MODRINTH/DOWNLOAD/WARNING] File present for {}, but something is wrong. Continuing with download...", self.title());
+            }
+            FileVerification::NotExists => {
+                println!("[MODRINTH/DOWNLOAD] Downloading file {} for {}", self.file.filename(), self.title());
+            }
+        }
+        let res = client.get(self.file.url())
+            .send()
+            .await?
+            .bytes()
+            .await?;
+        if self.file.hashes.check512(&Sha512::digest(&res)) {
+            println!("[MODRINTH/DOWNLOAD] Hashes match. Writing to file...");
+            let mut f_out = fs::File::create(
+                file_path
+            )?;
+            f_out.write_all(&res)?;
+            println!("[MODRINTH/DOWNLOAD] Successfully downloaded {}", self.file.filename());
+        } else {
+            DownloadError::BadHash(
+                format!("Hashes do not match for file '{}'. Skipping download...",
+                    self.file.filename()
+                )
+            );
+        }
+        Ok(())
     }
 }
 
@@ -339,6 +436,14 @@ impl Clone for ModrinthFile {
 struct ModrinthFileHash {
     #[serde(deserialize_with = "deserialize_hex_str_to_bytes")]
     sha512: Vec<u8>
+}
+
+impl ModrinthFileHash {
+    pub fn check512<U>(&self, other_hash: &GenericArray<u8, U>) -> bool
+        where U: ArrayLength<u8>
+    {
+        &self.sha512[..] == &other_hash[..]
+    }
 }
 
 impl Clone for ModrinthFileHash {
@@ -576,7 +681,7 @@ pub fn collect_versions(results: Vec<Result<Version, ModError>>) -> Vec<Version>
     out
 }
 
-enum FileVerification {
+pub enum FileVerification {
     Ok,
     NotExists,
     BadHash,

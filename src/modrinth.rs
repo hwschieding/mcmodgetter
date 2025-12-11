@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use std::{fmt, fs, error};
 use std::io::{Write};
 use std::path::{self, PathBuf};
@@ -15,14 +16,16 @@ pub enum ModError {
     NoFile(String),
     BadRequest(reqwest::Error),
     NoVersion(String),
+    NoDependency(String),
 }
 
 impl fmt::Display for ModError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoFile(msg) => write!(f, "[MODRINTH] No file: {}", msg),
-            Self::BadRequest(err) => write!(f, "[MODRINTH] Bad request: {}", err),
-            Self::NoVersion(msg) => write!(f, "[MODRINTH] No version: {}", msg),
+            Self::NoFile(msg) => write!(f, "[MODRINTH/ERROR] No file: {}", msg),
+            Self::BadRequest(err) => write!(f, "[MODRINTH/ERROR] Bad request: {}", err),
+            Self::NoVersion(msg) => write!(f, "[MODRINTH/ERROR] No version: {}", msg),
+            Self::NoDependency(msg) => write!(f, "[MODRINTH/ERROR] No dependency: {}", msg)
         }
     }
 }
@@ -48,9 +51,8 @@ pub struct Mod {
     version_name: String,
     version_id: String,
     file: ModrinthFile,
-    // dependencies: Vec<Mod>,
+    dependencies: Vec<RequiredDependency>,
 }
-
 
 impl Mod {
     pub fn title(&self) -> &String {
@@ -62,24 +64,109 @@ impl Mod {
     pub fn filename(&self) -> &String {
         self.file.filename()
     }
-    pub async fn build_from_api(
+    pub fn dependencies(&self) -> &Vec<RequiredDependency> {
+        &self.dependencies
+    }
+    fn build(
+        proj: Project,
+        ver: Version,
+        primary_file_idx: usize,
+    ) -> Self {
+        println!("[MODRINTH] Found mod '{}' for id '{}'", proj.get_title(), proj.get_id());
+        Mod { 
+            title: proj.get_title().clone(),
+            project_id: proj.get_id().clone(),
+            version_name: ver.name().clone(),
+            version_id: ver.id().clone(),
+            file: ver.files()[primary_file_idx].clone(),
+            dependencies: ver.dependencies().clone()
+        }
+    }
+    pub async fn build_from_project_id(
         client: &reqwest::Client,
         project_id: String,
         query: &VersionQuery
     ) -> Result<Self, ModError> {
+        println!("[MODRINTH] Searching for project id '{}'", project_id);
         let proj = get_project(client, &project_id).await?;
         let top_version = get_top_version(client, &project_id, query).await?;
         let primary_file_idx = search_for_primary_file(top_version.files())
-            .ok_or(ModError::NoFile(
-                format!("Couldn't find a file for project {}", proj.get_title())
-            ))?;
-        
-        let title = proj.get_title().clone();
-        let version_name = top_version.name().clone();
-        let version_id = top_version.id().clone();
-        let file = top_version.files()[primary_file_idx].clone();
+        .ok_or(ModError::NoFile(
+            format!("Couldn't find file for project {}", proj.get_title())
+        ))?;
+        Ok(Self::build(proj, top_version, primary_file_idx))
+    }
+    pub async fn build_from_version_id(
+        client: & reqwest::Client,
+        version_id: String,
+    ) -> Result<Self, ModError> {
+        println!("[MODRINTH] Searching for version id '{}'", version_id);
+        let ver = get_version_from_version_id(client, &version_id).await?;
+        let proj = get_project(client, &ver.project_id()).await?;
+        let primary_file_idx = search_for_primary_file(ver.files())
+        .ok_or(ModError::NoFile(
+            format!("Couldn't find file for project {}", proj.get_title())
+        ))?;
+        Ok(Self::build(proj, ver, primary_file_idx))
+    }
+    pub async fn build_from_version(
+        client: &reqwest::Client,
+        ver: Version
+    ) -> Result<Self, ModError> {
+        println!("[MODRINTH] Using version id '{}'", ver.id());
+        let proj = get_project(client, ver.project_id()).await?;
+        let primary_file_idx = search_for_primary_file(ver.files())
+        .ok_or(ModError::NoFile(
+            format!("Couldn't find file for project {}", proj.get_title())
+        ))?;
+        Ok(Self::build(proj, ver, primary_file_idx))
+    }
+}
 
-        Ok(Mod{title, project_id, version_name, version_id, file})
+impl PartialEq for Mod {
+    fn eq(&self, other: &Self) -> bool {
+        self.project_id == other.project_id
+    }
+}
+
+impl PartialEq<String> for Mod {
+    fn eq(&self, other: &String) -> bool {
+        &self.project_id == other
+    }
+}
+
+pub async fn resolve_dependencies(
+    client: &reqwest::Client,
+    query: &VersionQuery,
+    mods: &mut Vec<Mod>,
+) -> Pin<Box<()>>
+{
+    println!("Func called");
+    let mut deps_to_search: Vec<&RequiredDependency> = Vec::new();
+    let mut new_deps: u16 = 0;
+    for value in &mut *mods {
+        deps_to_search.extend(value.dependencies());
+    }
+    let dep_versions= future::join_all(
+        deps_to_search.iter()
+        .map(|&x| {
+            x.resolve_to_version(client, query)
+        })
+    ).await;
+    for ver_res in dep_versions {
+        if let Ok(ver) = ver_res
+        && !mods.iter().any(|m| m == ver.project_id()) {
+            if let Ok(m) = Mod::build_from_version(client, ver).await {
+                mods.push(m);
+                new_deps += 1;
+            }
+        }
+    };
+    if new_deps > 0 {
+        Box::pin(resolve_dependencies(client, query, mods)).await
+    } else {
+        println!("No deps found");
+        Box::pin(())
     }
 }
 
@@ -171,6 +258,22 @@ impl RequiredDependency {
     }
     pub fn project_id(&self) -> &Option<String> {
         &self.project_id
+    }
+    pub async fn resolve_to_version(
+        &self,
+        client: &reqwest::Client,
+        query: &VersionQuery
+    ) -> Result<Version, ModError>{
+        if let Some(v) = &self.version_id {
+            return match get_version_from_version_id(client, v).await {
+                Ok(v) => Ok(v),
+                Err(e) => Err(ModError::BadRequest(e))
+            }
+        } else if let Some(p) = &self.project_id {
+            return get_top_version(client, p, query).await
+        } else {
+            return Err(ModError::NoDependency("Could not resolve dependency".to_string()))
+        }
     }
 }
 
@@ -330,6 +433,17 @@ pub async fn get_version(
         .send()
         .await?;
     response.json::<Vec<Version>>().await
+}
+
+pub async fn get_version_from_version_id(
+    client: &reqwest::Client,
+    id: &String
+) -> Result<Version, reqwest::Error> {
+    let url = format!("{}/v2/version/{}", MODRINTH_URL, id);
+    let response = client.get(url)
+        .send()
+        .await?;
+    response.json::<Version>().await
 }
 
 pub async fn get_top_version(

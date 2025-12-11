@@ -120,8 +120,21 @@ fn parse_line_from_mmg_file() {
 async fn build_mod() {
     let client = create_client().expect("Client should be created");
     let query = VersionQuery::build_query(&String::from("1.21.8"), &String::from("fabric"));
-    let modrinth_mod = Mod::build_from_api(&client, String::from("uXXizFIs"), &query).await.expect("Should no errors");
+    let modrinth_mod = Mod::build_from_project_id(&client, String::from("uXXizFIs"), &query).await.expect("Should no errors");
     assert_eq!(modrinth_mod.title(), "FerriteCore");
     assert_eq!(modrinth_mod.filename(), "ferritecore-8.0.0-fabric.jar");
     assert_eq!(modrinth_mod.version_name(), "ferritecore-8.0.0-fabric");
+}
+
+#[tokio::test]
+async fn get_dependencies() {
+    let client = create_client().expect("client should work");
+    let query = VersionQuery::build_query(&String::from("1.21.8"), &String::from("fabric"));
+    let mut mods: Vec<Mod> = Vec::new();
+    mods.push(Mod::build_from_project_id(&client, String::from("89Wsn8GD"), &query).await.expect("Should be no errors")); //capes +2
+    mods.push(Mod::build_from_project_id(&client, String::from("mOgUt4GM"), &query).await.expect("Should be no errors")); //modmenu +1  
+    mods.push(Mod::build_from_project_id(&client, String::from("DFqQfIBR"), &query).await.expect("Should be no errors")); //craftpresence +1
+    mods.push(Mod::build_from_project_id(&client, String::from("UMxybHE8"), &query).await.expect("Should be no errors")); //minihud +1
+    resolve_dependencies(&client, &query, &mut mods).await;
+    assert_eq!(mods.len(), 9);
 }

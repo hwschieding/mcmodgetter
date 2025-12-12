@@ -1,5 +1,6 @@
 use std::pin::Pin;
 use std::{fmt, fs, error};
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::{self, PathBuf};
 use futures::future;
@@ -175,6 +176,41 @@ impl Mod {
             }
             Err(_) => FileVerification::BadFile
         }
+    }
+    async fn check_dep_against(
+        dep_ver: &Version,
+        check_against: &Option<HashSet<&String>>,
+    ) -> bool {
+        if let Some(check) = check_against 
+        && check.contains(dep_ver.project_id()) { false }
+        else { true }
+    }
+    pub async fn get_dependencies(
+        &self,
+        client: &reqwest::Client,
+        query: &VersionQuery,
+        check_against: Option<&Vec<Mod>>
+    ) -> Vec<Self> {
+        let mut out: Vec<Self> = Vec::new();
+        let mut check_set: Option<HashSet<&String>> = None;
+        if let Some(c) = check_against {
+            check_set = Some(
+                c.iter()
+                .map(|x| {
+                    &x.project_id
+                })
+                .collect()
+            );
+        }
+        for dep in self.dependencies() {
+            let dep_ver = dep.resolve_to_version(client, query).await;
+            if let Ok(ver) = dep_ver
+            && Self::check_dep_against(&ver, &check_set).await
+            && let Ok(m) = Mod::build_from_version(client, ver).await {
+                out.push(m);
+            };
+        }
+        out
     }
     pub async fn download(
         &self,

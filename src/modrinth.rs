@@ -775,6 +775,30 @@ async fn collect_downloads(
     future::join_all(download_tasks).await
 }
 
+async fn collect_mods(
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    query: &VersionQuery
+) -> Vec<Mod>
+{
+    let mut mods = Vec::new();
+    for id in ids {
+        mods.push(Mod::build_from_project_id(client, id.to_string(), query));
+    }
+    future::join_all(mods)
+    .await
+    .into_iter()
+    .filter_map(|m| {
+        if let Err(e) = m {
+            println!("{e}");
+            return None
+        } else {
+            return m.ok()
+        }
+    })
+    .collect()
+}
+
 async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
@@ -797,6 +821,33 @@ async fn download_from_id_list<'a>(
         .collect();
     for err in download_errors {
         println!("Download error: {err}")
+    }
+    Ok(())
+}
+
+async fn download_from_id_list2<'a>(
+    conf: &arguments::Config<'a>,
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: &PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    let query = VersionQuery::build_query(
+        conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    let mut mods: Vec<Mod> = collect_mods(client, ids, &query).await;
+    resolve_dependencies(client, &query, &mut mods).await;
+    let mut download_tasks = Vec::new();
+    for m in &mods {
+        download_tasks.push(m.download(client, out_dir));
+    }
+    for e in future::join_all(download_tasks)
+    .await
+    .into_iter()
+    .filter_map(Result::err)
+    .collect::<Vec<DownloadError>>() {
+        println!("{e}");
     }
     Ok(())
 }
@@ -897,7 +948,7 @@ pub async fn handle_list_input<'a>(
                 out_dir
             ).await;
         } else {
-            download_from_id_list(
+            download_from_id_list2(
                 conf,
                 client,
                 id_list,

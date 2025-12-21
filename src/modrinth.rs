@@ -15,18 +15,18 @@ static MODRINTH_URL: &str = "https://api.modrinth.com";
 
 #[derive(Debug)]
 pub enum ModError {
-    NoFile(String),
+    NoFileForProj(String),
     BadRequest(reqwest::Error),
-    NoVersion(String),
+    NoVersionForId(String),
     NoDependency(String),
 }
 
 impl fmt::Display for ModError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoFile(msg) => write!(f, "[MODRINTH/ERROR] No file: {}", msg),
+            Self::NoFileForProj(proj_title) => write!(f, "[MODRINTH/ERROR] No file for project: {}", proj_title),
             Self::BadRequest(err) => write!(f, "[MODRINTH/ERROR] Bad request: {}", err),
-            Self::NoVersion(msg) => write!(f, "[MODRINTH/ERROR] No version: {}", msg),
+            Self::NoVersionForId(id) => write!(f, "[MODRINTH/ERROR] No version for ID: {}", id),
             Self::NoDependency(msg) => write!(f, "[MODRINTH/ERROR] No dependency: {}", msg)
         }
     }
@@ -132,7 +132,7 @@ impl Mod {
         let proj = get_project(client, &project_id).await?;
         let top_version = get_top_version(client, &project_id, query).await?;
         let primary_file_idx = search_for_primary_file(top_version.files())
-        .ok_or(ModError::NoFile(
+        .ok_or(ModError::NoFileForProj(
             format!("Couldn't find file for project {}", proj.get_title())
         ))?;
         Ok(Self::build(proj, top_version, primary_file_idx))
@@ -145,8 +145,8 @@ impl Mod {
         let ver = get_version_from_version_id(client, &version_id).await?;
         let proj = get_project(client, &ver.project_id()).await?;
         let primary_file_idx = search_for_primary_file(ver.files())
-        .ok_or(ModError::NoFile(
-            format!("Couldn't find file for project {}", proj.get_title())
+        .ok_or(ModError::NoFileForProj(
+            proj.get_title().to_string()
         ))?;
         Ok(Self::build(proj, ver, primary_file_idx))
     }
@@ -157,8 +157,8 @@ impl Mod {
         println!("[MODRINTH] Using version id '{}'", ver.id());
         let proj = get_project(client, ver.project_id()).await?;
         let primary_file_idx = search_for_primary_file(ver.files())
-        .ok_or(ModError::NoFile(
-            format!("Couldn't find file for project {}", proj.get_title())
+        .ok_or(ModError::NoFileForProj(
+            proj.get_title().to_string()
         ))?;
         Ok(Self::build(proj, ver, primary_file_idx))
     }
@@ -597,8 +597,8 @@ pub async fn get_top_version(
     match response.get(0).cloned() {
         Some(v) => Ok(v),
         None => {
-            Err(ModError::NoVersion(
-                format!("No version found for id {project_id}")
+            Err(ModError::NoVersionForId(
+                project_id.to_string()
             ))
         }
     }

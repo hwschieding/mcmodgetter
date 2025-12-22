@@ -86,6 +86,31 @@ impl From<std::io::Error> for DownloadError {
     }
 }
 
+pub enum VerificationResult {
+    Ok(String),
+    Err(String)
+}
+
+impl VerificationResult {
+    pub fn print(&self) -> () {
+        match self {
+            Self::Ok(v) => {
+                println!("[MODRINTH/VERIFY] {v}")
+            }
+            Self::Err(e) => {
+                println!("[MODRINTH/VERIFY/ERROR] {e}")
+            }
+        }
+    }
+    pub fn is_ok(&self) -> bool {
+        if let Self::Ok(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
 pub struct Mod {
     title: String,
     project_id: String,
@@ -253,6 +278,27 @@ impl Mod {
             );
         }
         Ok(())
+    }
+    fn verify(
+        &self,
+        out_dir: &PathBuf
+    ) -> VerificationResult
+    {
+        let file_path = out_dir.join(self.filename());
+        match self.verify_against(&file_path) {
+            FileVerification::Ok => VerificationResult::Ok(
+                format!("Successfully verified '{}'", self.filename())
+            ),
+            FileVerification::NotExists => VerificationResult::Err(
+                format!("'{}' does not exist", self.filename())
+            ),
+            FileVerification::BadHash => VerificationResult::Err(
+                format!("'{}' exists but hashes do not match", self.filename())
+            ),
+            _ => VerificationResult::Err(
+                format!("Something went wrong with file '{}'", self.filename())
+            )
+        }
     }
 }
 
@@ -852,6 +898,36 @@ async fn download_from_id_list2<'a>(
     Ok(())
 }
 
+async fn verify_ids_from_list2<'a>(
+    conf: &arguments::Config<'a>,
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: &PathBuf
+) -> () {
+    println!(
+        "Checking provided IDs against folder '{}'; dependencies NOT included...",
+        out_dir.display()
+    );
+    let query = VersionQuery::build_query(
+        &conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    let mods: Vec<Mod> = collect_mods(client, ids, &query).await;
+    let mut bad_results: u32 = 0;
+    for m in &mods {
+        let v_res = m.verify(out_dir);
+        if !v_res.is_ok() {
+            bad_results += 1;
+        };
+        v_res.print();
+    };
+    if bad_results > 0 {
+        println!("\n{} out of {} mods were unable to be verified", bad_results, mods.len());
+    } else {
+        println!("All mods verified successfully");
+    };
+}
+
 async fn verify_ids_from_list<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
@@ -941,7 +1017,7 @@ pub async fn handle_list_input<'a>(
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
     if conf.verify() {
-            verify_ids_from_list(
+            verify_ids_from_list2(
                 conf,
                 client,
                 id_list,

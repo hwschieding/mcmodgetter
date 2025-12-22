@@ -12,9 +12,34 @@ pub enum Loader {
     Forge
 }
 
+pub struct Options {
+    verify: bool,
+    skip_deps: bool,
+}
+
+impl Options {
+    pub fn new() -> Self {
+        let verify = false;
+        let skip_deps = false;
+        Options {verify, skip_deps}
+    }
+    pub fn set_verify(&mut self, new:bool) -> () {
+        self.verify = new;
+    }
+    pub fn set_skip_deps(&mut self, new:bool) -> () {
+        self.skip_deps = new;
+    }
+    pub fn get_verify(&self) -> bool {
+        self.verify
+    }
+    pub fn get_skip_deps(&self) -> bool {
+        self.skip_deps
+    }
+}
+
 pub struct Config<'a> {
     mode: AppMode<'a>,
-    verify: bool,
+    ops: Options,
     mcvs: String,
     loader: Loader,
     out_dir: Option<&'a Path>,
@@ -23,7 +48,7 @@ pub struct Config<'a> {
 impl<'a> Config<'a> {
     pub fn build_from_args(args: &'a Vec<String>) -> Result<Config<'a>, &'static str> {
         let mut mode: Result<AppMode, &'static str> = Err("No ID specified");
-        let mut verify: bool = false;
+        let mut ops: Options = Options::new();
         let mut mcvs: Result<String, &'static str> = Err("No mc version specified");
         let mut loader: Loader = Loader::Fabric;
         let mut out_dir: Option<&Path> = None;
@@ -37,7 +62,8 @@ impl<'a> Config<'a> {
                 "-l" => loader = get_loader(args_iter.next())?,
                 "-o" => out_dir = Some(get_out_dir(args_iter.next())?),
                 "clearmods" => mode = Ok(AppMode::ClearMods),
-                "checkmods" => verify = true,
+                "checkmods" => { ops.set_verify(true); },
+                "--skipdeps" => { ops.set_skip_deps(true); }
                 _ => println!("arg '{arg}' not recognized")
             }
         };
@@ -46,13 +72,13 @@ impl<'a> Config<'a> {
             AppMode::ClearMods => String::new(),
             _ => mcvs?
         };
-        Ok(Config { mode, verify, mcvs, loader, out_dir })
+        Ok(Config { mode, ops, mcvs, loader, out_dir })
     }
     pub fn mode(&self) -> &AppMode<'a> {
         &self.mode
     }
-    pub fn verify(&self) -> bool {
-        self.verify
+    pub fn options(&self) -> &Options {
+        &self.ops
     }
     pub fn mcvs(&self) -> &String {
         &self.mcvs

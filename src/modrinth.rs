@@ -115,7 +115,7 @@ pub struct Mod {
     title: String,
     project_id: String,
     version_name: String,
-    version_id: String,
+    _version_id: String,
     file: ModrinthFile,
     dependencies: Vec<RequiredDependency>,
 }
@@ -143,7 +143,7 @@ impl Mod {
             title: proj.get_title().clone(),
             project_id: proj.get_id().clone(),
             version_name: ver.name().clone(),
-            version_id: ver.id().clone(),
+            _version_id: ver.id().clone(),
             file: ver.files()[primary_file_idx].clone(),
             dependencies: ver.dependencies().clone()
         }
@@ -722,8 +722,12 @@ async fn download_from_id_list<'a>(
         &conf.loader_as_string()
     );
     let mut mods: Vec<Mod> = collect_mods(client, ids, &query).await;
-    println!("[MODRINTH] Getting dependencies...");
-    resolve_dependencies(client, &query, &mut mods).await;
+    if conf.options().get_skip_deps() {
+        println!("[MODRINTH] Skipping dependencies...");
+    } else {
+        println!("[MODRINTH] Getting dependencies...");
+        resolve_dependencies(client, &query, &mut mods).await;
+    }
     download_mods(client, &mods, out_dir).await;
     Ok(())
 }
@@ -773,8 +777,12 @@ async fn download_from_id<'a>(
     match Mod::build_from_project_id(client, id.to_string(), &query).await {
         Ok(m) => {
             mods.push(m);
-            println!("[MODRINTH] Getting dependencies...");
-            resolve_dependencies(client, &query, &mut mods).await;
+            if conf.options().get_skip_deps() {
+                println!("[MODRINTH] Skipping dependencies...");
+            } else {
+                println!("[MODRINTH] Getting dependencies...");
+                resolve_dependencies(client, &query, &mut mods).await;
+            }
             download_mods(client, &mods, out_dir).await;
         }
         Err(e) => { println!("{e}")}
@@ -809,7 +817,7 @@ pub async fn handle_list_input<'a>(
     id_list: &Vec<String>,
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
-    if conf.verify() {
+    if conf.options().get_verify() {
             verify_ids_from_list(
                 conf,
                 client,
@@ -833,7 +841,7 @@ pub async fn handle_single_input<'a>(
     id: &str,
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
-    if conf.verify() {
+    if conf.options().get_verify() {
         verify_id(
             conf,
             client,

@@ -320,7 +320,7 @@ pub async fn resolve_dependencies(
     mods: &mut Vec<Mod>,
 ) -> Pin<Box<()>>
 {
-    println!("Func called");
+    // println!("Func called");
     let mut deps_to_search: Vec<&RequiredDependency> = Vec::new();
     let mut new_deps: u16 = 0;
     for value in &mut *mods {
@@ -344,7 +344,7 @@ pub async fn resolve_dependencies(
     if new_deps > 0 {
         Box::pin(resolve_dependencies(client, query, mods)).await
     } else {
-        println!("No deps found");
+        // println!("No deps found");
         Box::pin(())
     }
 }
@@ -660,165 +660,11 @@ pub fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize> {
     Some(0) // If no file is marked primary, return 1st file
 }
 
-
-fn file_from_ver(v: &Version) -> Option<ModrinthFile>{
-    let v_files = v.files();
-    let primary_idx = search_for_primary_file(v_files);
-    if let Some(idx) = primary_idx {
-        Some(v_files[idx].clone())
-    } else {
-        None
-    }
-}
-
-pub async fn get_file_direct(
-    client: &reqwest::Client,
-    project_id: &str,
-    query: &VersionQuery,
-) -> Option<ModrinthFile>
-{
-    match get_top_version(client, project_id, query).await {
-        Ok(version) => {
-            println!("({project_id}) Found suitable version: {} [{}]",
-                version.name(),
-                version.version_number()
-            );
-            file_from_ver(&version)
-        }
-        Err(e) => {
-            println!("({project_id}) Failed to find suitable version: {e}");
-            None
-        }
-    }
-}
-
-fn download_already_exists(file_path: &PathBuf, f_in: &ModrinthFile) -> bool {
-    fn check_hash(bytes: &Vec<u8>, f_in: &ModrinthFile) -> bool {
-        let file_hash = Sha512::digest(bytes);
-        if &f_in.hashes.sha512[..] == &file_hash[..] {
-            println!("File {} already here, skipping download...",
-                f_in.filename()
-            );
-            return true;
-        } else {
-            println!("Filename {} already here, but hashes do not match. Redownloading...",
-                f_in.filename()
-            );
-            return false;
-        }
-    }
-    if !path::Path::exists(&file_path) {
-        return false;
-    }
-    match fs::read(&file_path) {
-        Ok(bytes) => {
-            return check_hash(&bytes, &f_in);
-        }
-        Err(e) => {
-            println!("Filename {} already found, but something went wrong ({e}). Redownloading...",
-                f_in.filename()
-            );
-            return false;
-        }
-    }
-}
-
-pub async fn download_file(
-    client: &reqwest::Client,
-    f_in: &ModrinthFile,
-    out_dir: &PathBuf
-) -> Result<(), Box<dyn error::Error>> 
-{
-    let file_path = out_dir.join(f_in.filename());
-    if download_already_exists(&file_path, &f_in) {
-        return Ok(())
-    }
-    let res = client.get(f_in.url())
-        .send()
-        .await?
-        .bytes()
-        .await?;
-    let file_hash = Sha512::digest(&res);
-    if &f_in.hashes.sha512[..] == &file_hash[..] {
-        println!("Hashes match. Downloading...");
-        let mut f_out = fs::File::create(
-            out_dir.join(f_in.filename())
-        )?;
-        f_out.write_all(&res)?;
-        println!("Successfully downloaded {}", f_in.filename());
-    } else {
-        println!("WARNING: Hashes do not match for file '{}'. Skipping download.", f_in.filename())
-    }
-    Ok(())
-}
-
-pub fn collect_versions(results: Vec<Result<Version, ModError>>) -> Vec<Version> {
-    let mut out: Vec<Version> = Vec::new();
-    for res in results {
-        match res {
-            Ok(v) => out.push(v),
-            Err(e) => eprintln!("Could not retrieve version: {e}")
-        }       
-    }
-    out
-}
-
 pub enum FileVerification {
     Ok,
     NotExists,
     BadHash,
     BadFile
-}
-
-fn verify_file(mfile: &ModrinthFile, out_dir: &PathBuf) -> FileVerification{
-    let file_path = out_dir.join(mfile.filename());
-    if !path::Path::exists(&file_path) {
-        return FileVerification::NotExists;
-    };
-    match fs::read(&file_path) {
-        Ok(bytes) => {
-            let file_hash = Sha512::digest(bytes);
-            if mfile.hashes.sha512[..] == file_hash[..] {
-                FileVerification::Ok
-            } else {
-                FileVerification::BadHash
-            }
-        },
-        Err(_) => FileVerification::BadFile
-    }
-}
-
-async fn collect_files(
-    client: &reqwest::Client,
-    ids: &Vec<String>,
-    query: &VersionQuery
-) -> Vec<Option<ModrinthFile>>
-{
-    let mut file_results  = Vec::new();
-    for id in ids {
-        println!("Getting ID '{id}'...");
-        file_results.push(
-            get_file_direct(client, id, &query)
-        )
-    }
-    future::join_all(file_results).await
-}
-
-async fn collect_downloads(
-    client: &reqwest::Client,
-    files: &Vec<Option<ModrinthFile>>,
-    out_dir: &PathBuf
-) -> Vec<Result<(), Box<dyn error::Error>>>
-{
-    let mut download_tasks = Vec::new();
-    for file in files {
-        if let Some(f) = file {
-            download_tasks.push(
-                download_file(client, f, out_dir)
-            )
-        }
-    }
-    future::join_all(download_tasks).await
 }
 
 async fn collect_mods(
@@ -845,33 +691,26 @@ async fn collect_mods(
     .collect()
 }
 
-async fn download_from_id_list<'a>(
-    conf: &arguments::Config<'a>,
-    client: &reqwest::Client,
-    ids: &Vec<String>,
+async fn download_mods(
+    client: & reqwest::Client,
+    mods: &Vec<Mod>,
     out_dir: &PathBuf
-) -> Result<(), Box<dyn error::Error>>
-{
-    let query: VersionQuery = VersionQuery::build_query(
-        conf.mcvs(), 
-        &conf.loader_as_string()
-    );
-    let mod_files = collect_files(client, ids, &query).await;
-    let downloads = collect_downloads(
-        client,
-        &mod_files,
-        &out_dir
-    ).await;
-    let download_errors: Vec<Box<dyn error::Error>> = downloads.into_iter()
-        .filter_map(Result::err)
-        .collect();
-    for err in download_errors {
-        println!("Download error: {err}")
+) -> () {
+    let mut download_tasks = Vec::new();
+    for m in mods {
+        download_tasks.push(m.download(client, out_dir));
     }
-    Ok(())
+    for e in future::join_all(download_tasks)
+    .await
+    .into_iter()
+    .filter_map(Result::err)
+    .collect::<Vec<DownloadError>>() {
+        println!("{e}");
+    };
+    ()
 }
 
-async fn download_from_id_list2<'a>(
+async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a>,
     client: & reqwest::Client,
     ids: &Vec<String>,
@@ -883,22 +722,13 @@ async fn download_from_id_list2<'a>(
         &conf.loader_as_string()
     );
     let mut mods: Vec<Mod> = collect_mods(client, ids, &query).await;
+    println!("[MODRINTH] Getting dependencies...");
     resolve_dependencies(client, &query, &mut mods).await;
-    let mut download_tasks = Vec::new();
-    for m in &mods {
-        download_tasks.push(m.download(client, out_dir));
-    }
-    for e in future::join_all(download_tasks)
-    .await
-    .into_iter()
-    .filter_map(Result::err)
-    .collect::<Vec<DownloadError>>() {
-        println!("{e}");
-    }
+    download_mods(client, &mods, out_dir).await;
     Ok(())
 }
 
-async fn verify_ids_from_list2<'a>(
+async fn verify_ids_from_list<'a>(
     conf: &arguments::Config<'a>,
     client: & reqwest::Client,
     ids: &Vec<String>,
@@ -928,48 +758,9 @@ async fn verify_ids_from_list2<'a>(
     };
 }
 
-async fn verify_ids_from_list<'a>(
-    conf: &arguments::Config<'a>,
-    client: &reqwest::Client,
-    ids: &Vec<String>,
-    out_dir: &PathBuf
-) -> () {
-    let query: VersionQuery = VersionQuery::build_query(
-        &conf.mcvs(),
-        &conf.loader_as_string()
-    );
-    let mod_files: Vec<ModrinthFile> = collect_files(client, ids, &query)
-        .await
-        .into_iter()
-        .filter_map(|f| f)
-        .collect();
-    let mut bad_results: u32 = 0;
-    for f in &mod_files {
-        match verify_file(&f, out_dir) {
-            FileVerification::Ok => {
-                println!("Successfully verified file {}", f.filename());
-            },
-            _ => {
-                println!("Unable to verify file {}", f.filename());
-                bad_results += 1;
-            }
-        }
-    };
-    if bad_results > 0 {
-        println!("\n{} out of {} modrinth files were unable to be verified",
-            bad_results,
-            mod_files.len()
-        );
-    } else {
-        println!("\nAll modrinth files verified successfully");
-    };
-    ()
-}
-
-
 async fn download_from_id<'a>(
     conf: &arguments::Config<'a>,
-    client: &reqwest::Client,
+    client: & reqwest::Client,
     id: &str,
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn error::Error>>
@@ -978,36 +769,38 @@ async fn download_from_id<'a>(
         conf.mcvs(),
         &conf.loader_as_string()
     );
-    if let Some(file) = get_file_direct(client, id, &query).await {
-        download_file(client, &file, out_dir).await?
-    } else {
-        println!("No file available for id {id}")
-    };
+    let mut mods: Vec<Mod> = Vec::new();
+    match Mod::build_from_project_id(client, id.to_string(), &query).await {
+        Ok(m) => {
+            mods.push(m);
+            println!("[MODRINTH] Getting dependencies...");
+            resolve_dependencies(client, &query, &mut mods).await;
+            download_mods(client, &mods, out_dir).await;
+        }
+        Err(e) => { println!("{e}")}
 
+    }
     Ok(())
 }
 
-async fn verify_id<'a>(
+async fn verify_id<'a> (
     conf: &arguments::Config<'a>,
-    client: &reqwest::Client,
+    client: & reqwest::Client,
     id: &str,
     out_dir: &PathBuf
 ) -> () {
-    let query: VersionQuery = VersionQuery::build_query(
+    let query = VersionQuery::build_query(
         &conf.mcvs(),
         &conf.loader_as_string()
     );
-    if let Some(f) = get_file_direct(&client, &id, &query).await {
-        match verify_file(&f, out_dir) {
-            FileVerification::Ok => {
-                println!("Successfully verified file {}", f.filename());
-            },
-            _ => {
-                println!("Unable to verify file {}", f.filename());
-            }
-        }
-    };
-    ()
+    match Mod::build_from_project_id(
+        client, 
+        id.to_string(), 
+        &query
+    ).await {
+        Ok(m) => { m.verify(out_dir).print() }
+        Err(e) => { println!("{e}") }
+    }
 }
 
 pub async fn handle_list_input<'a>(
@@ -1017,14 +810,14 @@ pub async fn handle_list_input<'a>(
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
     if conf.verify() {
-            verify_ids_from_list2(
+            verify_ids_from_list(
                 conf,
                 client,
                 id_list,
                 out_dir
             ).await;
         } else {
-            download_from_id_list2(
+            download_from_id_list(
                 conf,
                 client,
                 id_list,

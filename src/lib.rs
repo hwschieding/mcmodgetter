@@ -1,5 +1,5 @@
 use std::fs::{self, DirEntry};
-use std::io;
+use std::{fmt, io, error};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -54,7 +54,7 @@ pub fn clear_mods(
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    println!("Delete everything in directory {}? (y/n)",
+    println!("Delete all '.jar' files in directory {}? (y/n)",
         &out_dir.display()
     );
     let mut user_ans = String::new();
@@ -77,31 +77,65 @@ pub fn get_out_dir(conf_dir: &Option<&Path>) -> Result<PathBuf, io::Error> {
     Ok(PathBuf::from(path))
 }
 
-fn remove_entry(entry: &DirEntry) -> io::Result<()> {
-    let path = entry.path();
-    if path.is_dir() {
-        fs::remove_dir_all(&path)?;
-    } else if path.is_file() {
-        fs::remove_file(&path)?;
+#[derive(Debug)]
+enum RemovalError {
+    BadExtensionForFile(String),
+    FileError(io::Error)
+}
+
+impl fmt::Display for RemovalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BadExtensionForFile(file_name) => write!(f, "[REMOVAL/ERROR] Unexpected extension for '{file_name}'"),
+            Self::FileError(err) => write!(f, "[REMOVAL/ERROR] Could not remove file: {err}")
+        }
     }
-    println!("Removed entry {}", &path.display());
-    Ok(())
+}
+
+impl error::Error for RemovalError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Self::FileError(e) => Some(e),
+            _ => None
+        }
+    }
+}
+
+impl From<io::Error> for RemovalError {
+    fn from(value: io::Error) -> Self {
+        Self::FileError(value)
+    }    
+}
+
+fn remove_jar(entry: &DirEntry) -> Result<(), RemovalError> {
+    let path = entry.path();
+    if let Some(ext) = path.extension() && ext == "jar"{
+        fs::remove_file(&path)?;
+        println!("[REMOVAL] Removed entry {}", &path.display());
+        Ok(())
+    } else {
+        Err(RemovalError::BadExtensionForFile(path.display().to_string()))
+    }
 }
 
 fn clear_dir(out_dir: &PathBuf) -> io::Result<()>{
-    println!("Clearing folder {}...", out_dir.display());
-    for entry in fs::read_dir(out_dir)? {
-        match entry {
-            Ok(v) => {
-                if let Err(e) = remove_entry(&v) {
-                    println!("Could not remove entry {} because {e}",
-                        &v.path().display()
-                    );
-                }
-            },
-            Err(e) => {
-                println!("Could not resolve dir entry: {e}");
+    println!("[REMOVAL] Clearing folder {}...", out_dir.display());
+    let entries = fs::read_dir(out_dir)?
+    .into_iter()
+    .filter_map(|ent_res| {
+        match ent_res {
+            Ok(de) => Some(de),
+            Err(err) => {
+                println!("[REMOVAL/ERROR] Could not resolve dir entry: {err}");
+                None
             }
+        }
+    })
+    .collect::<Vec<DirEntry>>();
+
+    for entry in entries {
+        if let Err(e) = remove_jar(&entry) {
+            println!("{e}");
         }
     }
     Ok(())

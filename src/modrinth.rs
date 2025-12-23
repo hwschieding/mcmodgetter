@@ -815,20 +815,20 @@ pub async fn handle_list_input<'a>(
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
     if conf.options().get_verify() {
-            verify_ids_from_list(
-                conf,
-                client,
-                id_list,
-                out_dir
-            ).await;
-        } else {
-            download_from_id_list(
-                conf,
-                client,
-                id_list,
-                out_dir
-            ).await;
-        };
+        verify_ids_from_list(
+            conf,
+            client,
+            id_list,
+            out_dir
+        ).await;
+    } else {
+        download_from_id_list(
+            conf,
+            client,
+            id_list,
+            out_dir
+        ).await;
+    };
     Ok(())
 }
 

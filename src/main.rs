@@ -5,6 +5,7 @@ use mcmodgetter::{
     clear_mods,
     create_client,
     get_out_dir,
+    help,
     id_from_file,
     single_id
 };
@@ -16,6 +17,7 @@ async fn main() {
     let conf = Config::build_from_args(&args)
         .unwrap_or_else(|e| {
             eprintln!("{e}");
+            help();
             process::exit(1);
         }
     );
@@ -26,7 +28,7 @@ async fn main() {
 }
 
 async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
-    println!("Starting...");
+    // println!("Starting...");
     let client = create_client()?;
     let out_dir = get_out_dir(&conf.out_dir())?;
     match conf.mode() {
@@ -48,6 +50,9 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
         },
         AppMode::ClearMods => {
             clear_mods(&out_dir)?;
+        },
+        AppMode::Help => {
+            help();
         }
     };
     Ok(())

@@ -4,6 +4,7 @@ pub enum AppMode<'a> {
     SingleId(String),
     IdFromFile(&'a Path),
     ClearMods,
+    Help
 }
 
 pub enum Loader {
@@ -64,12 +65,16 @@ impl<'a> Config<'a> {
                 "clearmods" => mode = Ok(AppMode::ClearMods),
                 "checkmods" => { ops.set_verify(true); },
                 "--skipdeps" => { ops.set_skip_deps(true); }
+                "-h" => mode = Ok(AppMode::Help),
+                "--help" => mode = Ok(AppMode::Help),
+                "-help" => mode = Ok(AppMode::Help),
                 _ => println!("arg '{arg}' not recognized")
             }
         };
         let mode = mode?;
         let mcvs = match mode {
             AppMode::ClearMods => String::new(),
+            AppMode::Help => String::new(),
             _ => mcvs?
         };
         Ok(Config { mode, ops, mcvs, loader, out_dir })

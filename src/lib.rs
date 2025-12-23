@@ -77,6 +77,29 @@ pub fn get_out_dir(conf_dir: &Option<&Path>) -> Result<PathBuf, io::Error> {
     Ok(PathBuf::from(path))
 }
 
+pub fn help() -> () {
+    println!(
+        "COMMANDS:
+  checkmods: Verifies mods in mod folder against specified options
+  clearmods: Removes all .jar files in specified mod folder (use -o)
+
+  OPTIONS:
+  -id <string>: Specifies single modrinth ID to download
+  --readfile <filename>: Specifies filename of modrinth IDs to download
+  *One of the above is required for a search
+
+  -mcv <minecraft version> [REQUIRED]: Specifies MC version to query for mods
+  -l <mod loader> [DEFAULT=fabric]: Specifies mod loader to query for (fabric, forge, etc)
+  *To query for multiple versions/loaders, separate by commas(,) with no spaces
+
+  -o <folder> [DEFAULT=mods]: Specifies output folder for mods relative to local directory
+
+  --skipdeps: Skip searching for and downloading mod dependencies
+  
+  -h, --help, -help: Show this help prompt"
+    )
+}
+
 #[derive(Debug)]
 enum RemovalError {
     BadExtensionForFile(String),

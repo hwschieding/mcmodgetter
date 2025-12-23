@@ -715,7 +715,7 @@ async fn download_from_id_list<'a>(
     client: & reqwest::Client,
     ids: &Vec<String>,
     out_dir: &PathBuf
-) -> Result<(), Box<dyn error::Error>>
+) -> ()
 {
     let query = VersionQuery::build_query(
         conf.mcvs(),
@@ -729,7 +729,7 @@ async fn download_from_id_list<'a>(
         resolve_dependencies(client, &query, &mut mods).await;
     }
     download_mods(client, &mods, out_dir).await;
-    Ok(())
+    ()
 }
 
 async fn verify_ids_from_list<'a>(
@@ -774,20 +774,18 @@ async fn download_from_id<'a>(
         &conf.loader_as_string()
     );
     let mut mods: Vec<Mod> = Vec::new();
-    match Mod::build_from_project_id(client, id.to_string(), &query).await {
-        Ok(m) => {
-            mods.push(m);
-            if conf.options().get_skip_deps() {
-                println!("[MODRINTH] Skipping dependencies...");
-            } else {
-                println!("[MODRINTH] Getting dependencies...");
-                resolve_dependencies(client, &query, &mut mods).await;
-            }
-            download_mods(client, &mods, out_dir).await;
-        }
-        Err(e) => { println!("{e}")}
-
+    mods.push(Mod::build_from_project_id(
+        client, 
+        id.to_string(), 
+        &query
+    ).await?);
+    if conf.options().get_skip_deps() {
+        println!("[MODRINTH] Skipping dependencies...");
+    } else {
+        println!("[MODRINTH] Getting dependencies...");
+        resolve_dependencies(client, &query, &mut mods).await;
     }
+    download_mods(client, &mods, out_dir).await;
     Ok(())
 }
 
@@ -796,19 +794,18 @@ async fn verify_id<'a> (
     client: & reqwest::Client,
     id: &str,
     out_dir: &PathBuf
-) -> () {
+) -> Result<(), ModError> {
     let query = VersionQuery::build_query(
         &conf.mcvs(),
         &conf.loader_as_string()
     );
-    match Mod::build_from_project_id(
+    let m = Mod::build_from_project_id(
         client, 
         id.to_string(), 
         &query
-    ).await {
-        Ok(m) => { m.verify(out_dir).print() }
-        Err(e) => { println!("{e}") }
-    }
+    ).await?;
+    m.verify(out_dir).print();
+    Ok(())
 }
 
 pub async fn handle_list_input<'a>(
@@ -830,7 +827,7 @@ pub async fn handle_list_input<'a>(
                 client,
                 id_list,
                 out_dir
-            ).await?;
+            ).await;
         };
     Ok(())
 }
@@ -847,7 +844,7 @@ pub async fn handle_single_input<'a>(
             client,
             id,
             out_dir
-        ).await;
+        ).await?;
     } else {
         download_from_id(
             conf,

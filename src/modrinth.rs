@@ -808,6 +808,21 @@ async fn verify_id<'a> (
     Ok(())
 }
 
+pub async fn list_projects(
+    client: &reqwest::Client,
+    id_list: &Vec<String>,
+) -> () {
+    let projs = get_projects_from_list(client, id_list).await;
+    for proj_res in projs {
+        if let Ok(p) = proj_res {
+            let proj_id = p.get_id();
+            let proj_title = p.get_title();
+            println!("ID '{proj_id}' -> '{proj_title}'");
+        }
+    }
+    ()
+}
+
 pub async fn handle_list_input<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,

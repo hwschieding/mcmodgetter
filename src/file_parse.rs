@@ -51,7 +51,9 @@ pub fn parse_ids(filepath: &Path) -> io::Result<FileIDs> {
     let reader = BufReader::new(f_in);
     for line_res in reader.lines() {
         let line = line_res?;
-        if let Some(val) = parse_input_line(&line){
+        if let Some(c) = line.chars().nth(0) && c == '#' {
+            println!("Skipping line '{line}'");
+        } else if let Some(val) = parse_input_line(&line){
             match val {
                 IdType::Modrinth(id) => { modrinth_ids.push(String::from(id)); },
                 IdType::Curseforge(id) => { curse_ids.push(String::from(id)); }

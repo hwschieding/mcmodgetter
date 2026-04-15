@@ -1,9 +1,10 @@
 use std::path::{Path};
 
-pub enum AppMode<'a> {
-    SingleId(String),
-    IdFromFile(&'a Path),
+pub enum AppMode {
+    DownloadId,
+    DownloadFile,
     ClearMods,
+    ReadMods,
     Help
 }
 
@@ -13,22 +14,44 @@ pub enum Loader {
     Forge
 }
 
-pub struct Options {
+pub struct Options<'a> {
+    file: Option<&'a Path>,
+    id: Option<String>,
     verify: bool,
     skip_deps: bool,
 }
 
-impl Options {
+impl <'a> Options<'a> {
     pub fn new() -> Self {
+        let file = None;
+        let id = None;
         let verify = false;
         let skip_deps = false;
-        Options {verify, skip_deps}
+        Options {file, id, verify, skip_deps}
+    }
+    pub fn set_file(&mut self, new:Option<&'a Path>) -> () {
+        self.file = new;
+    }
+    pub fn set_id(&mut self, new:Option<String>) -> () {
+        self.id = new;
+    }
+    pub fn has_id(&self) -> bool {
+        self.id.is_some()
+    }
+    pub fn has_file(&self) -> bool {
+        self.file.is_some()
     }
     pub fn set_verify(&mut self, new:bool) -> () {
         self.verify = new;
     }
     pub fn set_skip_deps(&mut self, new:bool) -> () {
         self.skip_deps = new;
+    }
+    pub fn get_file(&self) -> Option<&'a Path> {
+        self.file
+    }
+    pub fn get_id(&self) -> &Option<String> {
+        &self.id
     }
     pub fn get_verify(&self) -> bool {
         self.verify
@@ -39,8 +62,8 @@ impl Options {
 }
 
 pub struct Config<'a> {
-    mode: AppMode<'a>,
-    ops: Options,
+    mode: AppMode,
+    ops: Options<'a>,
     mcvs: String,
     loader: Loader,
     out_dir: Option<&'a Path>,
@@ -48,6 +71,7 @@ pub struct Config<'a> {
 
 impl<'a> Config<'a> {
     pub fn build_from_args(args: &'a Vec<String>) -> Result<Config<'a>, &'static str> {
+        let mut is_download = false;
         let mut mode: Result<AppMode, &'static str> = Err("No ID specified");
         let mut ops: Options = Options::new();
         let mut mcvs: Result<String, &'static str> = Err("No mc version specified");
@@ -57,13 +81,15 @@ impl<'a> Config<'a> {
         args_iter.next();
         while let Some(arg) = args_iter.next(){
             match arg.as_str() {
-                "-id" => mode = Ok(get_id_mode(args_iter.next())?),
-                "--readfile" => mode = Ok(get_file_mode(args_iter.next())?),
+                "download" => is_download = true,
+                "clearmods" => mode = Ok(AppMode::ClearMods),
+                "readmods" => mode = Ok(AppMode::ReadMods),
+                "checkmods" => { ops.set_verify(true); },
+                "-id" => ops.set_id(get_id(args_iter.next())?),
+                "-file" => ops.set_file(get_file(args_iter.next())?),
                 "-mcv" => mcvs = Ok(get_mcvs(args_iter.next())?),
                 "-l" => loader = get_loader(args_iter.next())?,
                 "-o" => out_dir = Some(get_out_dir(args_iter.next())?),
-                "clearmods" => mode = Ok(AppMode::ClearMods),
-                "checkmods" => { ops.set_verify(true); },
                 "--skipdeps" => { ops.set_skip_deps(true); }
                 "-h" => mode = Ok(AppMode::Help),
                 "--help" => mode = Ok(AppMode::Help),
@@ -71,18 +97,31 @@ impl<'a> Config<'a> {
                 _ => println!("arg '{arg}' not recognized")
             }
         };
+        if is_download {
+            if ops.has_id() {
+                mode = Ok(AppMode::DownloadId)
+            } else if ops.has_file() {
+                mode = Ok(AppMode::DownloadFile)
+            } else {
+                return Err("'download' requires more arguments (-id or -file)")
+            }
+        }
         let mode = mode?;
+        if matches!(mode, AppMode::ReadMods) && !ops.has_file() {
+            return Err("'readmods' needs a file to be specified (-file)")
+        }
         let mcvs = match mode {
             AppMode::ClearMods => String::new(),
+            AppMode::ReadMods => String::new(),
             AppMode::Help => String::new(),
             _ => mcvs?
         };
         Ok(Config { mode, ops, mcvs, loader, out_dir })
     }
-    pub fn mode(&self) -> &AppMode<'a> {
+    pub fn mode(&self) -> &AppMode {
         &self.mode
     }
-    pub fn options(&self) -> &Options {
+    pub fn options(&self) -> &Options<'a> {
         &self.ops
     }
     pub fn mcvs(&self) -> &String {
@@ -129,16 +168,16 @@ fn get_loader(loader: Option<&String>) -> Result<Loader, &'static str> {
     }
 }
 
-fn get_id_mode<'a>(id: Option<&'a String>) -> Result<AppMode<'a>, &'static str> {
+fn get_id<'a>(id: Option<&'a String>) -> Result<Option<String>, &'static str> {
     match id {
-        Some(v) => Ok(AppMode::SingleId(v.to_string())),
+        Some(v) => Ok(Some(v.to_string())),
         None => Err("Invalid ID")
     }
 }
 
-fn get_file_mode<'a>(file: Option<&'a String>) -> Result<AppMode<'a>, &'static str> {
+fn get_file<'a>(file: Option<&'a String>) -> Result<Option<&'a Path>, &'static str> {
     match file {
-        Some(v) => Ok(AppMode::IdFromFile(&Path::new(v))),
+        Some(v) => Ok(Some(&Path::new(v))),
         None => Err("Invalid filename")
     }
 }

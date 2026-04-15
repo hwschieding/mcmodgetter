@@ -17,24 +17,47 @@ const APP_USER_AGENT: &str = concat!(
     " (https://github.com/hwschieding/mcmodgetter)"
 );
 
+fn get_ids<'a>(f: &Path) -> io::Result<file_parse::FileIDs> {
+    println!("Parsing file '{}'...", f.display());
+    return file_parse::parse_ids(f)
+}
+
+pub async fn read_mods<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    if let Some(filename) = conf.options().get_file() {
+        let ids = get_ids(filename)?;
+        if let Some(modrinth_ids) = ids.modrinth() {
+            modrinth::list_projects(client, modrinth_ids).await;
+        }
+    } else {
+        println!("Couldn't get filename");
+    }
+    Ok(())
+}
+
 pub async fn id_from_file<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
-    filename: &Path,
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    println!("Parsing file '{}'...", filename.display());
-    let ids = file_parse::parse_ids(filename)?;
+    if let Some(filename) = conf.options().get_file() {
+        let ids = get_ids(filename)?;
 
-    if let Some(modrinth_ids) = ids.modrinth() {
-        println!("Handling modrinth ids...");
-        modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
-    };
-    if let Some(curse_ids) = ids.curseforge() {
-        for id in curse_ids {
-            println!("Curseforge id '{id}'");
+        if let Some(modrinth_ids) = ids.modrinth() {
+            println!("Handling modrinth ids...");
+            modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
+        };
+        if let Some(curse_ids) = ids.curseforge() {
+            for id in curse_ids {
+                println!("Curseforge id '{id}'");
+            }
         }
+    } else {
+        println!("Couldn't get filename");
     }
     Ok(())
 }
@@ -42,11 +65,12 @@ pub async fn id_from_file<'a>(
 pub async fn single_id<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
-    id: &String,
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    modrinth::handle_single_input(conf, client, id, out_dir).await?;
+    if let Some(id) = conf.options().get_id() {
+        modrinth::handle_single_input(conf, client, id, out_dir).await?;
+    }
     Ok(())
 }
 
@@ -90,15 +114,16 @@ pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {
 pub fn help() -> () {
     println!(
         "COMMANDS:
+  download: Downloads specifed mods from modrinth (use -id or -file, -mcv required)
   checkmods: Verifies mods in mod folder against specified options
   clearmods: Removes all .jar files in specified mod folder (use -o)
+  readmods: List all ids in the modlist file with a matching project title (use -file)
 
   OPTIONS:
   -id <string>: Specifies single modrinth ID to download
-  --readfile <filename>: Specifies filename of modrinth IDs to download
-  *One of the above is required for a search
+  -file <filename>: Specifies filename of modrinth IDs to download
 
-  -mcv <minecraft version> [REQUIRED]: Specifies MC version to query for mods
+  -mcv <minecraft version>: Specifies MC version to query for mods
   -l <mod loader> [DEFAULT=fabric]: Specifies mod loader to query for (fabric, forge, etc)
   *To query for multiple versions/loaders, separate by commas(,) with no spaces
 

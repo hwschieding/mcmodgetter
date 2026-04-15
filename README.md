@@ -14,7 +14,7 @@ You can run the executable with the `--help` argument for a full documentation o
 
 A basic example of a successfully executing command would look like this:
 
-`mcmodgetter.exe -id P7dR8mSH -mcv 1.21.11`
+`mcmodgetter.exe download -id P7dR8mSH -mcv 1.21.11`
 
 This would download Fabric API from modrinth for Minecraft 1.21.11 and the Fabric mod loader to a 'mods' directory local to the executable.
 

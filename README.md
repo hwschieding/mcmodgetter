@@ -31,4 +31,5 @@ MCModgetter supports downloading multiple mods concurrently from a single comman
 
 1. Create a text file in the same directory as the executable.
 2. Paste the mod IDs for every mod you wish to download into the file line by line.
+    * To "comment out" a line, use a `#` symbol as the first character in the line.
 3. Run the executable with the option `--readfile <modlist file>` with the name of the file you just created.

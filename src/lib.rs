@@ -54,6 +54,12 @@ pub fn clear_mods(
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
+    if !out_dir.is_dir() {
+        let out_dir_name = out_dir.display();
+        println!("'{out_dir_name}' does not exist/isn't a directory.");
+        println!("clearmods can only be performed on existing directories.");
+        return Ok(())
+    }
     println!("Delete all '.jar' files in directory {}? (y/n)",
         &out_dir.display()
     );
@@ -71,10 +77,14 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
-pub fn get_out_dir(conf_dir: &Option<&Path>) -> Result<PathBuf, io::Error> {
+pub fn get_out_dir(conf_dir: &Option<&Path>) -> PathBuf {
     let path = conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR));
-    fs::create_dir_all(path)?;
-    Ok(PathBuf::from(path))
+    PathBuf::from(path)
+}
+
+pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {
+    fs::create_dir_all(dir_path)?;
+    Ok(())
 }
 
 pub fn help() -> () {

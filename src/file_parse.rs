@@ -5,15 +5,21 @@ use std::path::Path;
 pub enum IdType<'a> {
     Modrinth(&'a str),
     Curseforge(&'a str),
+    Hangar(&'a str),
 }
 
 pub struct FileIDs {
     modrinth: Option<Vec<String>>,
     curseforge: Option<Vec<String>>,
+    hangar: Option<Vec<String>>,
 }
 
 impl FileIDs {
-    pub fn build(modrinth_ids: Vec<String>, curse_ids: Vec<String>) -> FileIDs {
+    pub fn build(
+        modrinth_ids: Vec<String>,
+        curse_ids: Vec<String>,
+        hangar_ids: Vec<String>,
+    ) -> FileIDs {
         let modrinth = match modrinth_ids.len() {
             0 => None,
             _ => Some(modrinth_ids)
@@ -22,7 +28,11 @@ impl FileIDs {
             0 => None,
             _ => Some(curse_ids)
         };
-        FileIDs { modrinth, curseforge }
+        let hangar = match hangar_ids.len() {
+            0 => None,
+            _ => Some(hangar_ids)
+        };
+        FileIDs { modrinth, curseforge, hangar }
     }
 
     pub fn build_modrinth_only(ids: Vec<String>) -> FileIDs {
@@ -31,7 +41,8 @@ impl FileIDs {
             _ => Some(ids)
         };
         let curseforge = None;
-        FileIDs { modrinth, curseforge }
+        let hangar = None;
+        FileIDs { modrinth, curseforge, hangar }
     }
     
     pub fn modrinth(&self) -> &Option<Vec<String>> {
@@ -41,11 +52,16 @@ impl FileIDs {
     pub fn curseforge(&self) -> &Option<Vec<String>> {
         &self.curseforge
     }
+
+    pub fn hangar(&self) -> &Option<Vec<String>> {
+        &self.hangar
+    }
 }
 
 pub fn parse_ids(filepath: &Path) -> io::Result<FileIDs> {
     let mut modrinth_ids: Vec<String> = Vec::new();
     let mut curse_ids: Vec<String> = Vec::new();
+    let mut hangar_ids: Vec<String> = Vec::new();
 
     let f_in = File::open(filepath)?;
     let reader = BufReader::new(f_in);
@@ -56,12 +72,13 @@ pub fn parse_ids(filepath: &Path) -> io::Result<FileIDs> {
         } else if let Some(val) = parse_input_line(&line){
             match val {
                 IdType::Modrinth(id) => { modrinth_ids.push(String::from(id)); },
-                IdType::Curseforge(id) => { curse_ids.push(String::from(id)); }
+                IdType::Curseforge(id) => { curse_ids.push(String::from(id)); },
+                IdType::Hangar(id) => { hangar_ids.push(String::from(id)); },
             }
         }
     }
 
-    Ok(FileIDs::build(modrinth_ids, curse_ids))
+    Ok(FileIDs::build(modrinth_ids, curse_ids, hangar_ids))
 }
 
 pub fn parse_input_line<'a>(line: &'a String) -> Option<IdType<'a>> {
@@ -73,7 +90,8 @@ pub fn parse_input_line<'a>(line: &'a String) -> Option<IdType<'a>> {
     if let Some(val) = line_iter.next() {
         match val {
             "-curse" => Some(IdType::Curseforge(id)),
-            _ => Some(IdType::Modrinth(id))
+            "-hang" => Some(IdType::Hangar(id)),
+            _ => Some(IdType::Modrinth(id)),
         }
     } else {
         Some(IdType::Modrinth(id))

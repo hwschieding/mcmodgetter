@@ -51,11 +51,16 @@ pub async fn id_from_file<'a>(
             println!("Handling modrinth ids...");
             modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
         };
-        if let Some(curse_ids) = ids.curseforge() {
-            for id in curse_ids {
-                println!("Curseforge id '{id}'");
-            }
-        }
+        // if let Some(curse_ids) = ids.curseforge() {
+        //     for id in curse_ids {
+        //         println!("Curseforge id '{id}'");
+        //     }
+        // }
+        // if let Some(hangar_ids) = ids.hangar() {
+        //     for id in hangar_ids {
+        //         println!("Hangar id '{id}'");
+        //     }
+        // }
     } else {
         println!("Couldn't get filename");
     }

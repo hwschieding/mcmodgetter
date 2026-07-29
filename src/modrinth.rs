@@ -6,7 +6,7 @@ use std::path::{self, PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
-use sha2::digest::generic_array::{ArrayLength, GenericArray};
+use sha2::digest::Output;
 use sha2::{Sha512, Digest};
 
 use crate::arguments;
@@ -521,10 +521,8 @@ struct ModrinthFileHash {
 }
 
 impl ModrinthFileHash {
-    pub fn check512<U>(&self, other_hash: &GenericArray<u8, U>) -> bool
-        where U: ArrayLength<u8>
-    {
-        &self.sha512[..] == &other_hash[..]
+    pub fn check512(&self, other_hash: &Output<Sha512>) -> bool {
+        self.sha512.as_slice() == other_hash.as_slice()
     }
 }
 

@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::{fmt, fs, error};
 use std::collections::HashSet;
 use std::io::{self, Write};
-use std::path::{self, PathBuf};
+use std::path;
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
@@ -13,7 +13,7 @@ use crate::{arguments, http_handler, items};
 
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 
-struct ModrinthProject
+struct ModrinthItem
 {
     title: String,
     id: String,
@@ -40,18 +40,17 @@ impl ModrinthFile {
         &self.primary
     }
 
-    pub async fn download<'a>(&self, downloader: &mut http_handler::Downloader<'a>) -> reqwest::Result<()>
+    pub async fn download<'a>(
+        &self,
+        downloader: &http_handler::Downloader<'a>,
+        out_dir:&path::PathBuf
+    ) -> Result<(), http_handler::DownloadError>
     {
-        downloader.retrieve_bytes(&self.url).await?;
-        if let Some(bytes) = downloader.download_bytes()
-        {
-            if self.hashes.check512(&Sha512::digest(bytes))
-            {
-
-            }
-
-        }
-        Ok(())
+        downloader.verify_and_download(
+            &self.url,
+            out_dir,
+            |b| self.hashes.check512(&Sha512::digest(b))
+        ).await
     }
 }
 

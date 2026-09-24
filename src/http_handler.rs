@@ -1,4 +1,8 @@
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::{fs, path::PathBuf, io::Write};
+
+use futures::io;
+use reqwest::Response;
+use serde::{Serialize, de::DeserializeOwned};
 
 struct Request<'a, T>
 {
@@ -15,15 +19,59 @@ where
         Request { client, query }
     }
 
-    pub async fn send<U>(&self, url: &String) -> Result<U, reqwest::Error>
+    async fn get_serialized_response(&self, url: &str) -> reqwest::Result<Response>
+    {
+        self.client.get(url)
+            .query(&self.query)
+            .send()
+            .await
+    }
+
+    pub async fn retrieve_deserialized<U>(&self, url: &str) -> reqwest::Result<U>
     where
         U: DeserializeOwned
     {
-        let serialized_response = self.client.get(url)
-            .query(&self.query)
+        self.get_serialized_response(url).await?
+            .json::<U>()
+            .await
+    }
+}
+
+pub struct Downloader<'a>
+{
+    client: &'a reqwest::Client,
+    download_bytes: Option<bytes::Bytes>
+}
+impl<'a> Downloader<'a>
+{
+    pub fn download_bytes(&self) -> &Option<bytes::Bytes>
+    {
+        &self.download_bytes
+    }
+    pub async fn retrieve_bytes(&mut self, url: &str) -> reqwest::Result<()>
+    {
+        let bytes = self.client.get(url)
             .send()
+            .await?
+            .bytes()
             .await?;
 
-        serialized_response.json::<U>().await
+        self.download_bytes = Some(bytes);
+        Ok(())
+    }
+
+    pub async fn download(&self, out_dir: &PathBuf) -> io::Result<()>
+    {
+        match self.download_bytes
+        {
+            Some(ref b) => {
+                fs::File::create(out_dir)?.write_all(b)?;
+            }
+            None => {
+                println!("Bad download call, Downloader has no bytes");
+            }
+        }
+        
+        Ok(())
     }
 }

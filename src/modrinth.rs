@@ -9,478 +9,17 @@ use serde::de::{Error};
 use sha2::digest::Output;
 use sha2::{Sha512, Digest};
 
-use crate::arguments;
+use crate::{arguments, http_handler, items};
 
 static MODRINTH_URL: &str = "https://api.modrinth.com";
 
-#[derive(Debug)]
-pub enum ModError {
-    NoFileForProj(String),
-    BadRequest(reqwest::Error),
-    NoVersionForId(String),
-    NoDependency(String),
-}
-
-impl fmt::Display for ModError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NoFileForProj(proj_title) => write!(f, "[MODRINTH/ERROR] No file for project: {}", proj_title),
-            Self::BadRequest(err) => write!(f, "[MODRINTH/ERROR] Bad request: {}", err),
-            Self::NoVersionForId(id) => write!(f, "[MODRINTH/ERROR] No version for ID: {}", id),
-            Self::NoDependency(msg) => write!(f, "[MODRINTH/ERROR] No dependency: {}", msg)
-        }
-    }
-}
-
-impl error::Error for ModError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            Self::BadRequest(err) => Some(err),
-            _ => None
-        }
-    }
-}
-
-impl From<reqwest::Error> for ModError {
-    fn from(value: reqwest::Error) -> Self {
-        Self::BadRequest(value)
-    }
-}
-
-#[derive(Debug)]
-pub enum DownloadError {
-    BadRequest(reqwest::Error),
-    BadFile(io::Error),
-    BadHash(String),
-}
-
-impl fmt::Display for DownloadError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BadRequest(err) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad request: {}", err),
-            Self::BadFile(err) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad file: {}", err),
-            Self::BadHash(msg) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad hash: {}", msg),
-        }
-    }
-}
-
-impl error::Error for DownloadError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            Self::BadRequest(err) => Some(err),
-            Self::BadFile(err) => Some(err),
-            _ => None
-        }
-    }
-}
-
-impl From<reqwest::Error> for DownloadError {
-    fn from(value: reqwest::Error) -> Self {
-        Self::BadRequest(value)
-    }
-}
-
-impl From<std::io::Error> for DownloadError {
-    fn from(value: std::io::Error) -> Self {
-        Self::BadFile(value)
-    }
-}
-
-pub enum VerificationResult {
-    Ok(String),
-    Err(String)
-}
-
-impl VerificationResult {
-    pub fn print(&self) -> () {
-        match self {
-            Self::Ok(v) => {
-                println!("[MODRINTH/VERIFY] {v}")
-            }
-            Self::Err(e) => {
-                println!("[MODRINTH/VERIFY/ERROR] {e}")
-            }
-        }
-    }
-    pub fn is_ok(&self) -> bool {
-        if let Self::Ok(_) = self {
-            true
-        } else {
-            false
-        }
-    }
-}
-
-pub struct Mod {
-    title: String,
-    project_id: String,
-    version_name: String,
-    _version_id: String,
-    file: ModrinthFile,
-    dependencies: Vec<RequiredDependency>,
-}
-
-impl Mod {
-    pub fn title(&self) -> &String {
-        &self.title
-    }
-    pub fn version_name(&self) -> &String {
-        &self.version_name
-    }
-    pub fn filename(&self) -> &String {
-        self.file.filename()
-    }
-    pub fn dependencies(&self) -> &Vec<RequiredDependency> {
-        &self.dependencies
-    }
-    fn build(
-        proj: Project,
-        ver: Version,
-        primary_file_idx: usize,
-    ) -> Self {
-        println!("[MODRINTH] Found mod '{}' for id '{}'", proj.get_title(), proj.get_id());
-        Mod { 
-            title: proj.get_title().clone(),
-            project_id: proj.get_id().clone(),
-            version_name: ver.name().clone(),
-            _version_id: ver.id().clone(),
-            file: ver.files()[primary_file_idx].clone(),
-            dependencies: ver.dependencies().clone()
-        }
-    }
-    pub async fn build_from_project_id(
-        client: &reqwest::Client,
-        project_id: String,
-        query: &VersionQuery
-    ) -> Result<Self, ModError> {
-        println!("[MODRINTH] Searching for project id '{}'", project_id);
-        let proj = get_project(client, &project_id).await?;
-        let top_version = get_top_version(client, &project_id, query).await?;
-        let primary_file_idx = search_for_primary_file(top_version.files())
-        .ok_or(ModError::NoFileForProj(
-            format!("Couldn't find file for project {}", proj.get_title())
-        ))?;
-        Ok(Self::build(proj, top_version, primary_file_idx))
-    }
-    pub async fn build_from_version_id(
-        client: & reqwest::Client,
-        version_id: String,
-    ) -> Result<Self, ModError> {
-        println!("[MODRINTH] Searching for version id '{}'", version_id);
-        let ver = get_version_from_version_id(client, &version_id).await?;
-        let proj = get_project(client, &ver.project_id()).await?;
-        let primary_file_idx = search_for_primary_file(ver.files())
-        .ok_or(ModError::NoFileForProj(
-            proj.get_title().to_string()
-        ))?;
-        Ok(Self::build(proj, ver, primary_file_idx))
-    }
-    pub async fn build_from_version(
-        client: &reqwest::Client,
-        ver: Version
-    ) -> Result<Self, ModError> {
-        println!("[MODRINTH] Using version id '{}'", ver.id());
-        let proj = get_project(client, ver.project_id()).await?;
-        let primary_file_idx = search_for_primary_file(ver.files())
-        .ok_or(ModError::NoFileForProj(
-            proj.get_title().to_string()
-        ))?;
-        Ok(Self::build(proj, ver, primary_file_idx))
-    }
-    pub fn verify_against(&self, file_path: &PathBuf) -> FileVerification {
-        if !path::Path::exists(&file_path) {
-            return FileVerification::NotExists
-        }
-        match fs::read(&file_path) {
-            Ok(bytes) => {
-                if self.file.hashes.check512(&Sha512::digest(bytes)) {
-                    FileVerification::Ok
-                } else {
-                    FileVerification::BadHash
-                }
-            }
-            Err(_) => FileVerification::BadFile
-        }
-    }
-    async fn check_dep_against(
-        dep_ver: &Version,
-        check_against: &Option<HashSet<&String>>,
-    ) -> bool {
-        if let Some(check) = check_against 
-        && check.contains(dep_ver.project_id()) { false }
-        else { true }
-    }
-    pub async fn get_dependencies(
-        &self,
-        client: &reqwest::Client,
-        query: &VersionQuery,
-        check_against: Option<&Vec<Mod>>
-    ) -> Vec<Self> {
-        let mut out: Vec<Self> = Vec::new();
-        let mut check_set: Option<HashSet<&String>> = None;
-        if let Some(c) = check_against {
-            check_set = Some(
-                c.iter()
-                .map(|x| {
-                    &x.project_id
-                })
-                .collect()
-            );
-        }
-        for dep in self.dependencies() {
-            let dep_ver = dep.resolve_to_version(client, query).await;
-            if let Ok(ver) = dep_ver
-            && Self::check_dep_against(&ver, &check_set).await
-            && let Ok(m) = Mod::build_from_version(client, ver).await {
-                out.push(m);
-            };
-        }
-        out
-    }
-    pub async fn download(
-        &self,
-        client: &reqwest::Client,
-        out_dir: &PathBuf
-    ) -> Result<(), DownloadError> {
-        let file_path = out_dir.join(self.filename());
-        match self.verify_against(&file_path){
-            FileVerification::Ok => {
-                println!("[MODRINTH/DOWNLOAD] {} already present. Skipping download...", self.title());
-                return Ok(());
-            }
-            FileVerification::BadHash => {
-                println!("[MODRINTH/DOWNLOAD/WARNING] File present for {}, but hashes do not match. Continuing with download...", self.title());
-            }
-            FileVerification::BadFile => {
-                println!("[MODRINTH/DOWNLOAD/WARNING] File present for {}, but something is wrong. Continuing with download...", self.title());
-            }
-            FileVerification::NotExists => {
-                println!("[MODRINTH/DOWNLOAD] Downloading file {} for {}", self.file.filename(), self.title());
-            }
-        }
-        let res = client.get(self.file.url())
-            .send()
-            .await?
-            .bytes()
-            .await?;
-        if self.file.hashes.check512(&Sha512::digest(&res)) {
-            println!("[MODRINTH/DOWNLOAD] Hashes match. Writing to file...");
-            let mut f_out = fs::File::create(
-                file_path
-            )?;
-            f_out.write_all(&res)?;
-            println!("[MODRINTH/DOWNLOAD] Successfully downloaded {}", self.file.filename());
-        } else {
-            DownloadError::BadHash(
-                format!("Hashes do not match for file '{}'. Skipping download...",
-                    self.file.filename()
-                )
-            );
-        }
-        Ok(())
-    }
-    fn verify(
-        &self,
-        out_dir: &PathBuf
-    ) -> VerificationResult
-    {
-        let file_path = out_dir.join(self.filename());
-        match self.verify_against(&file_path) {
-            FileVerification::Ok => VerificationResult::Ok(
-                format!("Successfully verified '{}'", self.filename())
-            ),
-            FileVerification::NotExists => VerificationResult::Err(
-                format!("'{}' does not exist", self.filename())
-            ),
-            FileVerification::BadHash => VerificationResult::Err(
-                format!("'{}' exists but hashes do not match", self.filename())
-            ),
-            _ => VerificationResult::Err(
-                format!("Something went wrong with file '{}'", self.filename())
-            )
-        }
-    }
-}
-
-impl PartialEq for Mod {
-    fn eq(&self, other: &Self) -> bool {
-        self.project_id == other.project_id
-    }
-}
-
-impl PartialEq<String> for Mod {
-    fn eq(&self, other: &String) -> bool {
-        &self.project_id == other
-    }
-}
-
-pub async fn resolve_dependencies(
-    client: &reqwest::Client,
-    query: &VersionQuery,
-    mods: &mut Vec<Mod>,
-) -> Pin<Box<()>>
+struct ModrinthProject
 {
-    // println!("Func called");
-    let mut deps_to_search: Vec<&RequiredDependency> = Vec::new();
-    let mut new_deps: u16 = 0;
-    for value in &mut *mods {
-        deps_to_search.extend(value.dependencies());
-    }
-    let dep_versions= future::join_all(
-        deps_to_search.iter()
-        .map(|&x| {
-            x.resolve_to_version(client, query)
-        })
-    ).await;
-    for ver_res in dep_versions {
-        if let Ok(ver) = ver_res
-        && !mods.iter().any(|m| m == ver.project_id()) {
-            if let Ok(m) = Mod::build_from_version(client, ver).await {
-                mods.push(m);
-                new_deps += 1;
-            }
-        }
-    };
-    if new_deps > 0 {
-        Box::pin(resolve_dependencies(client, query, mods)).await
-    } else {
-        // println!("No deps found");
-        Box::pin(())
-    }
-}
-
-#[derive(Deserialize)]
-pub struct Project {
-    id: String,
     title: String,
-    description: String,
-}
-
-impl Project {
-    pub fn get_id(&self) -> &String {
-        &self.id
-    }
-    pub fn get_title(&self) -> &String {
-        &self.title
-    }
-    pub fn get_desc(&self) -> &String {
-        &self.description
-    }
-}
-
-#[derive(Deserialize)]
-pub struct Version {
     id: String,
-    project_id: String,
-    name: String,
-    version_number: String,
-    files: Vec<ModrinthFile>,
-    #[serde(deserialize_with = "deserialize_only_required_deps")]
-    dependencies: Vec<RequiredDependency>
-}
-
-impl Version {
-    pub fn id(&self) -> &String{
-        &self.id
-    }
-    pub fn project_id(&self) -> &String {
-        &self.project_id
-    }
-    pub fn name(&self) -> &String {
-        &self.name
-    }
-    pub fn version_number(&self) -> &String {
-        &self.version_number
-    }
-    pub fn files(&self) -> &Vec<ModrinthFile> {
-        &self.files
-    }
-    pub fn dependencies(&self) -> &Vec<RequiredDependency> {
-        &self.dependencies
-    }
-}
-
-impl Clone for Version {
-    fn clone(&self) -> Self {
-        Version {
-            id: self.id.clone(),
-            project_id: self.project_id.clone(),
-            name: self.name.clone(),
-            version_number: self.version_number.clone(),
-            files: self.files.clone(),
-            dependencies: self.dependencies.clone()
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct Dependency {
-    version_id: Option<String>,
-    project_id: Option<String>,
-    dependency_type: String
-}
-
-pub struct RequiredDependency {
-    version_id: Option<String>,
-    project_id: Option<String>,
-}
-
-impl RequiredDependency {
-    pub fn from_dep(dep: Dependency) -> Self {
-        RequiredDependency {
-            version_id: dep.version_id,
-            project_id: dep.project_id
-        }
-    }
-    pub fn version_id(&self) -> &Option<String> {
-        &self.version_id
-    }
-    pub fn project_id(&self) -> &Option<String> {
-        &self.project_id
-    }
-    pub async fn resolve_to_version(
-        &self,
-        client: &reqwest::Client,
-        query: &VersionQuery
-    ) -> Result<Version, ModError>{
-        if let Some(v) = &self.version_id {
-            return match get_version_from_version_id(client, v).await {
-                Ok(v) => Ok(v),
-                Err(e) => Err(ModError::BadRequest(e))
-            }
-        } else if let Some(p) = &self.project_id {
-            return get_top_version(client, p, query).await
-        } else {
-            return Err(ModError::NoDependency("Could not resolve dependency".to_string()))
-        }
-    }
-}
-
-impl Clone for RequiredDependency {
-    fn clone(&self) -> Self {
-        RequiredDependency {
-            version_id: self.version_id.clone(),
-            project_id: self.project_id.clone(),
-        }
-    }
-}
-
-fn deserialize_only_required_deps<'de, D>(
-    deserializer: D
-) -> Result<Vec<RequiredDependency>, D::Error> 
-    where D: Deserializer<'de>
-{
-    let deps: Vec<Dependency> = Deserialize::deserialize(deserializer)?;
-    Ok (deps.into_iter()
-        .filter_map(|d|
-            if d.dependency_type == "required" {
-                Some(RequiredDependency::from_dep(d))
-            } else {
-                None
-            }
-        )
-        .collect()
-    )
+    version_title: String,
+    version_id: String,
+    download: ModrinthFile
 }
 
 #[derive(Deserialize)]
@@ -490,7 +29,6 @@ pub struct ModrinthFile {
     primary: bool,
     hashes: ModrinthFileHash,
 }
-
 impl ModrinthFile {
     pub fn url(&self) -> &String {
         &self.url
@@ -500,6 +38,20 @@ impl ModrinthFile {
     }
     pub fn primary(&self) -> &bool {
         &self.primary
+    }
+
+    pub async fn download<'a>(&self, downloader: &mut http_handler::Downloader<'a>) -> reqwest::Result<()>
+    {
+        downloader.retrieve_bytes(&self.url).await?;
+        if let Some(bytes) = downloader.download_bytes()
+        {
+            if self.hashes.check512(&Sha512::digest(bytes))
+            {
+
+            }
+
+        }
+        Ok(())
     }
 }
 
@@ -533,7 +85,6 @@ impl Clone for ModrinthFileHash {
         }
     }
 }
-
 fn deserialize_hex_str_to_bytes<'de, D>(
     deserializer: D
 ) -> Result<Vec<u8>, D::Error>
@@ -542,329 +93,801 @@ fn deserialize_hex_str_to_bytes<'de, D>(
     let hex_data: String = Deserialize::deserialize(deserializer)?;
     hex::decode(hex_data).map_err(D::Error::custom)
 }
-#[derive(Serialize)]
-pub struct VersionQuery {
-    game_versions: String,
-    loaders: String
-}
 
-impl VersionQuery {
-    fn build_param_array(user_params: &String) -> String {
-        let mut params = user_params.split(",");
-        let mut res: String = String::from("[");
-        res = format!("{}\"{}\"",
-            res,
-            params.next().unwrap_or(""),
-        );
-        while let Some(prm) = params.next() {
-            res = format!("{},\"{}\"",
-                res,
-                prm,
-            );
-        }
-        format!("{}]", res)
-    }
-    pub fn build_query(user_mcvs: &String, user_loader: &String) -> VersionQuery {
-        let game_versions= Self::build_param_array(user_mcvs);
-        let loaders= Self::build_param_array(user_loader);
-        VersionQuery { game_versions, loaders }
-    }
-    pub fn mcvs(&self) -> &str {
-        &self.game_versions.as_str()
-    }
-    pub fn loader(&self) -> &str {
-        &self.loaders.as_str()
-    }
-}
+// #[derive(Debug)]
+// pub enum ModError {
+//     NoFileForProj(String),
+//     BadRequest(reqwest::Error),
+//     NoVersionForId(String),
+//     NoDependency(String),
+// }
 
-pub async fn get_project(
-    client: &reqwest::Client,
-    id: &str
-) -> Result<Project, reqwest::Error>
-{
-    let url = format!("{}{}{}", MODRINTH_URL, "/v2/project/", id);
-    let response = client.get(url)
-        .send()
-        .await?;
-    response.json::<Project>().await
-}
+// impl fmt::Display for ModError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             Self::NoFileForProj(proj_title) => write!(f, "[MODRINTH/ERROR] No file for project: {}", proj_title),
+//             Self::BadRequest(err) => write!(f, "[MODRINTH/ERROR] Bad request: {}", err),
+//             Self::NoVersionForId(id) => write!(f, "[MODRINTH/ERROR] No version for ID: {}", id),
+//             Self::NoDependency(msg) => write!(f, "[MODRINTH/ERROR] No dependency: {}", msg)
+//         }
+//     }
+// }
 
-pub async fn get_projects_from_list(
-    client: &reqwest::Client,
-    ids: &Vec<String>
-) -> Vec<Result<Project, reqwest::Error>>
-{
-    let mut responses = Vec::new();
-    for id in ids {
-        responses.push(get_project(client, id));
-    }
-    future::join_all(responses).await
-}
+// impl error::Error for ModError {
+//     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+//         match self {
+//             Self::BadRequest(err) => Some(err),
+//             _ => None
+//         }
+//     }
+// }
 
-pub async fn get_version(
-    client: &reqwest::Client,
-    project_id: &str,
-    query: &VersionQuery
-) -> Result<Vec<Version>, reqwest::Error>
-{
-    let url = format!("{}{}{}{}",
-        MODRINTH_URL,
-        "/v2/project/",
-        project_id,
-        "/version"
-    );
-    let response = client.get(url)
-        .query(query)
-        .send()
-        .await?;
-    response.json::<Vec<Version>>().await
-}
+// impl From<reqwest::Error> for ModError {
+//     fn from(value: reqwest::Error) -> Self {
+//         Self::BadRequest(value)
+//     }
+// }
 
-pub async fn get_version_from_version_id(
-    client: &reqwest::Client,
-    id: &String
-) -> Result<Version, reqwest::Error> {
-    let url = format!("{}/v2/version/{}", MODRINTH_URL, id);
-    let response = client.get(url)
-        .send()
-        .await?;
-    response.json::<Version>().await
-}
+// #[derive(Debug)]
+// pub enum DownloadError {
+//     BadRequest(reqwest::Error),
+//     BadFile(io::Error),
+//     BadHash(String),
+// }
 
-pub async fn get_top_version(
-    client: & reqwest::Client,
-    project_id: &str,
-    query: &VersionQuery
-) -> Result<Version, ModError>
-{
-    let response = get_version(client, project_id, query).await?;
-    match response.get(0).cloned() {
-        Some(v) => Ok(v),
-        None => {
-            Err(ModError::NoVersionForId(
-                project_id.to_string()
-            ))
-        }
-    }
-}
+// impl fmt::Display for DownloadError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             Self::BadRequest(err) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad request: {}", err),
+//             Self::BadFile(err) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad file: {}", err),
+//             Self::BadHash(msg) => write!(f, "[MODRINTH/DOWNLOAD/ERROR] Bad hash: {}", msg),
+//         }
+//     }
+// }
 
-pub fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize> {
-    if files.len() == 0 {
-        return None; // If there are no files
-    }
-    for (i, file) in files.iter().enumerate() {
-        if file.primary { return Some(i); }
-    }
-    Some(0) // If no file is marked primary, return 1st file
-}
+// impl error::Error for DownloadError {
+//     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+//         match self {
+//             Self::BadRequest(err) => Some(err),
+//             Self::BadFile(err) => Some(err),
+//             _ => None
+//         }
+//     }
+// }
 
-pub enum FileVerification {
-    Ok,
-    NotExists,
-    BadHash,
-    BadFile
-}
+// impl From<reqwest::Error> for DownloadError {
+//     fn from(value: reqwest::Error) -> Self {
+//         Self::BadRequest(value)
+//     }
+// }
 
-async fn collect_mods(
-    client: & reqwest::Client,
-    ids: &Vec<String>,
-    query: &VersionQuery
-) -> Vec<Mod>
-{
-    let mut mods = Vec::new();
-    for id in ids {
-        mods.push(Mod::build_from_project_id(client, id.to_string(), query));
-    }
-    future::join_all(mods)
-    .await
-    .into_iter()
-    .filter_map(|m| {
-        if let Err(e) = m {
-            println!("{e}");
-            return None
-        } else {
-            return m.ok()
-        }
-    })
-    .collect()
-}
+// impl From<std::io::Error> for DownloadError {
+//     fn from(value: std::io::Error) -> Self {
+//         Self::BadFile(value)
+//     }
+// }
 
-async fn download_mods(
-    client: & reqwest::Client,
-    mods: &Vec<Mod>,
-    out_dir: &PathBuf
-) -> () {
-    let mut download_tasks = Vec::new();
-    for m in mods {
-        download_tasks.push(m.download(client, out_dir));
-    }
-    for e in future::join_all(download_tasks)
-    .await
-    .into_iter()
-    .filter_map(Result::err)
-    .collect::<Vec<DownloadError>>() {
-        println!("{e}");
-    };
-    ()
-}
+// pub enum VerificationResult {
+//     Ok(String),
+//     Err(String)
+// }
 
-async fn download_from_id_list<'a>(
-    conf: &arguments::Config<'a>,
-    client: & reqwest::Client,
-    ids: &Vec<String>,
-    out_dir: &PathBuf
-) -> ()
-{
-    let query = VersionQuery::build_query(
-        conf.mcvs(),
-        &conf.loader_as_string()
-    );
-    let mut mods: Vec<Mod> = collect_mods(client, ids, &query).await;
-    if conf.options().get_skip_deps() {
-        println!("[MODRINTH] Skipping dependencies...");
-    } else {
-        println!("[MODRINTH] Getting dependencies...");
-        resolve_dependencies(client, &query, &mut mods).await;
-    }
-    download_mods(client, &mods, out_dir).await;
-    ()
-}
+// impl VerificationResult {
+//     pub fn print(&self) -> () {
+//         match self {
+//             Self::Ok(v) => {
+//                 println!("[MODRINTH/VERIFY] {v}")
+//             }
+//             Self::Err(e) => {
+//                 println!("[MODRINTH/VERIFY/ERROR] {e}")
+//             }
+//         }
+//     }
+//     pub fn is_ok(&self) -> bool {
+//         if let Self::Ok(_) = self {
+//             true
+//         } else {
+//             false
+//         }
+//     }
+// }
 
-async fn verify_ids_from_list<'a>(
-    conf: &arguments::Config<'a>,
-    client: & reqwest::Client,
-    ids: &Vec<String>,
-    out_dir: &PathBuf
-) -> () {
-    println!(
-        "Checking provided IDs against folder '{}'; dependencies NOT included...",
-        out_dir.display()
-    );
-    let query = VersionQuery::build_query(
-        &conf.mcvs(),
-        &conf.loader_as_string()
-    );
-    let mods: Vec<Mod> = collect_mods(client, ids, &query).await;
-    let mut bad_results: u32 = 0;
-    for m in &mods {
-        let v_res = m.verify(out_dir);
-        if !v_res.is_ok() {
-            bad_results += 1;
-        };
-        v_res.print();
-    };
-    if bad_results > 0 {
-        println!("\n{} out of {} mods were unable to be verified", bad_results, mods.len());
-    } else {
-        println!("All mods verified successfully");
-    };
-}
+// pub struct Mod {
+//     title: String,
+//     project_id: String,
+//     version_name: String,
+//     _version_id: String,
+//     file: ModrinthFile,
+//     dependencies: Vec<RequiredDependency>,
+// }
 
-async fn download_from_id<'a>(
-    conf: &arguments::Config<'a>,
-    client: & reqwest::Client,
-    id: &str,
-    out_dir: &PathBuf
-) -> Result<(), Box<dyn error::Error>>
-{
-    let query = VersionQuery::build_query(
-        conf.mcvs(),
-        &conf.loader_as_string()
-    );
-    let mut mods: Vec<Mod> = Vec::new();
-    mods.push(Mod::build_from_project_id(
-        client, 
-        id.to_string(), 
-        &query
-    ).await?);
-    if conf.options().get_skip_deps() {
-        println!("[MODRINTH] Skipping dependencies...");
-    } else {
-        println!("[MODRINTH] Getting dependencies...");
-        resolve_dependencies(client, &query, &mut mods).await;
-    }
-    download_mods(client, &mods, out_dir).await;
-    Ok(())
-}
+// impl Mod {
+//     pub fn title(&self) -> &String {
+//         &self.title
+//     }
+//     pub fn version_name(&self) -> &String {
+//         &self.version_name
+//     }
+//     pub fn filename(&self) -> &String {
+//         self.file.filename()
+//     }
+//     pub fn dependencies(&self) -> &Vec<RequiredDependency> {
+//         &self.dependencies
+//     }
+//     fn build(
+//         proj: Project,
+//         ver: Version,
+//         primary_file_idx: usize,
+//     ) -> Self {
+//         println!("[MODRINTH] Found mod '{}' for id '{}'", proj.get_title(), proj.get_id());
+//         Mod { 
+//             title: proj.get_title().clone(),
+//             project_id: proj.get_id().clone(),
+//             version_name: ver.name().clone(),
+//             _version_id: ver.id().clone(),
+//             file: ver.files()[primary_file_idx].clone(),
+//             dependencies: ver.dependencies().clone()
+//         }
+//     }
+//     pub async fn build_from_project_id(
+//         client: &reqwest::Client,
+//         project_id: String,
+//         query: &VersionQuery
+//     ) -> Result<Self, ModError> {
+//         println!("[MODRINTH] Searching for project id '{}'", project_id);
+//         let proj = get_project(client, &project_id).await?;
+//         let top_version = get_top_version(client, &project_id, query).await?;
+//         let primary_file_idx = search_for_primary_file(top_version.files())
+//         .ok_or(ModError::NoFileForProj(
+//             format!("Couldn't find file for project {}", proj.get_title())
+//         ))?;
+//         Ok(Self::build(proj, top_version, primary_file_idx))
+//     }
+//     pub async fn build_from_version_id(
+//         client: & reqwest::Client,
+//         version_id: String,
+//     ) -> Result<Self, ModError> {
+//         println!("[MODRINTH] Searching for version id '{}'", version_id);
+//         let ver = get_version_from_version_id(client, &version_id).await?;
+//         let proj = get_project(client, &ver.project_id()).await?;
+//         let primary_file_idx = search_for_primary_file(ver.files())
+//         .ok_or(ModError::NoFileForProj(
+//             proj.get_title().to_string()
+//         ))?;
+//         Ok(Self::build(proj, ver, primary_file_idx))
+//     }
+//     pub async fn build_from_version(
+//         client: &reqwest::Client,
+//         ver: Version
+//     ) -> Result<Self, ModError> {
+//         println!("[MODRINTH] Using version id '{}'", ver.id());
+//         let proj = get_project(client, ver.project_id()).await?;
+//         let primary_file_idx = search_for_primary_file(ver.files())
+//         .ok_or(ModError::NoFileForProj(
+//             proj.get_title().to_string()
+//         ))?;
+//         Ok(Self::build(proj, ver, primary_file_idx))
+//     }
+//     pub fn verify_against(&self, file_path: &PathBuf) -> FileVerification {
+//         if !path::Path::exists(&file_path) {
+//             return FileVerification::NotExists
+//         }
+//         match fs::read(&file_path) {
+//             Ok(bytes) => {
+//                 if self.file.hashes.check512(&Sha512::digest(bytes)) {
+//                     FileVerification::Ok
+//                 } else {
+//                     FileVerification::BadHash
+//                 }
+//             }
+//             Err(_) => FileVerification::BadFile
+//         }
+//     }
+//     async fn check_dep_against(
+//         dep_ver: &Version,
+//         check_against: &Option<HashSet<&String>>,
+//     ) -> bool {
+//         if let Some(check) = check_against 
+//         && check.contains(dep_ver.project_id()) { false }
+//         else { true }
+//     }
+//     pub async fn get_dependencies(
+//         &self,
+//         client: &reqwest::Client,
+//         query: &VersionQuery,
+//         check_against: Option<&Vec<Mod>>
+//     ) -> Vec<Self> {
+//         let mut out: Vec<Self> = Vec::new();
+//         let mut check_set: Option<HashSet<&String>> = None;
+//         if let Some(c) = check_against {
+//             check_set = Some(
+//                 c.iter()
+//                 .map(|x| {
+//                     &x.project_id
+//                 })
+//                 .collect()
+//             );
+//         }
+//         for dep in self.dependencies() {
+//             let dep_ver = dep.resolve_to_version(client, query).await;
+//             if let Ok(ver) = dep_ver
+//             && Self::check_dep_against(&ver, &check_set).await
+//             && let Ok(m) = Mod::build_from_version(client, ver).await {
+//                 out.push(m);
+//             };
+//         }
+//         out
+//     }
+//     pub async fn download(
+//         &self,
+//         client: &reqwest::Client,
+//         out_dir: &PathBuf
+//     ) -> Result<(), DownloadError> {
+//         let file_path = out_dir.join(self.filename());
+//         match self.verify_against(&file_path){
+//             FileVerification::Ok => {
+//                 println!("[MODRINTH/DOWNLOAD] {} already present. Skipping download...", self.title());
+//                 return Ok(());
+//             }
+//             FileVerification::BadHash => {
+//                 println!("[MODRINTH/DOWNLOAD/WARNING] File present for {}, but hashes do not match. Continuing with download...", self.title());
+//             }
+//             FileVerification::BadFile => {
+//                 println!("[MODRINTH/DOWNLOAD/WARNING] File present for {}, but something is wrong. Continuing with download...", self.title());
+//             }
+//             FileVerification::NotExists => {
+//                 println!("[MODRINTH/DOWNLOAD] Downloading file {} for {}", self.file.filename(), self.title());
+//             }
+//         }
+//         let res = client.get(self.file.url())
+//             .send()
+//             .await?
+//             .bytes()
+//             .await?;
+//         if self.file.hashes.check512(&Sha512::digest(&res)) {
+//             println!("[MODRINTH/DOWNLOAD] Hashes match. Writing to file...");
+//             let mut f_out = fs::File::create(
+//                 file_path
+//             )?;
+//             f_out.write_all(&res)?;
+//             println!("[MODRINTH/DOWNLOAD] Successfully downloaded {}", self.file.filename());
+//         } else {
+//             DownloadError::BadHash(
+//                 format!("Hashes do not match for file '{}'. Skipping download...",
+//                     self.file.filename()
+//                 )
+//             );
+//         }
+//         Ok(())
+//     }
+//     fn verify(
+//         &self,
+//         out_dir: &PathBuf
+//     ) -> VerificationResult
+//     {
+//         let file_path = out_dir.join(self.filename());
+//         match self.verify_against(&file_path) {
+//             FileVerification::Ok => VerificationResult::Ok(
+//                 format!("Successfully verified '{}'", self.filename())
+//             ),
+//             FileVerification::NotExists => VerificationResult::Err(
+//                 format!("'{}' does not exist", self.filename())
+//             ),
+//             FileVerification::BadHash => VerificationResult::Err(
+//                 format!("'{}' exists but hashes do not match", self.filename())
+//             ),
+//             _ => VerificationResult::Err(
+//                 format!("Something went wrong with file '{}'", self.filename())
+//             )
+//         }
+//     }
+// }
 
-async fn verify_id<'a> (
-    conf: &arguments::Config<'a>,
-    client: & reqwest::Client,
-    id: &str,
-    out_dir: &PathBuf
-) -> Result<(), ModError> {
-    let query = VersionQuery::build_query(
-        &conf.mcvs(),
-        &conf.loader_as_string()
-    );
-    let m = Mod::build_from_project_id(
-        client, 
-        id.to_string(), 
-        &query
-    ).await?;
-    m.verify(out_dir).print();
-    Ok(())
-}
+// impl PartialEq for Mod {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.project_id == other.project_id
+//     }
+// }
 
-pub async fn list_projects(
-    client: &reqwest::Client,
-    id_list: &Vec<String>,
-) -> () {
-    let projs = get_projects_from_list(client, id_list).await;
-    for proj_res in projs {
-        if let Ok(p) = proj_res {
-            let proj_id = p.get_id();
-            let proj_title = p.get_title();
-            println!("ID '{proj_id}' -> '{proj_title}'");
-        }
-    }
-    ()
-}
+// impl PartialEq<String> for Mod {
+//     fn eq(&self, other: &String) -> bool {
+//         &self.project_id == other
+//     }
+// }
 
-pub async fn handle_list_input<'a>(
-    conf: &arguments::Config<'a>,
-    client: &reqwest::Client,
-    id_list: &Vec<String>,
-    out_dir: &PathBuf
-) -> Result<(), Box<dyn error::Error>> {
-    if conf.options().get_verify() {
-        verify_ids_from_list(
-            conf,
-            client,
-            id_list,
-            out_dir
-        ).await;
-    } else {
-        download_from_id_list(
-            conf,
-            client,
-            id_list,
-            out_dir
-        ).await;
-    };
-    Ok(())
-}
+// pub async fn resolve_dependencies(
+//     client: &reqwest::Client,
+//     query: &VersionQuery,
+//     mods: &mut Vec<Mod>,
+// ) -> Pin<Box<()>>
+// {
+//     // println!("Func called");
+//     let mut deps_to_search: Vec<&RequiredDependency> = Vec::new();
+//     let mut new_deps: u16 = 0;
+//     for value in &mut *mods {
+//         deps_to_search.extend(value.dependencies());
+//     }
+//     let dep_versions= future::join_all(
+//         deps_to_search.iter()
+//         .map(|&x| {
+//             x.resolve_to_version(client, query)
+//         })
+//     ).await;
+//     for ver_res in dep_versions {
+//         if let Ok(ver) = ver_res
+//         && !mods.iter().any(|m| m == ver.project_id()) {
+//             if let Ok(m) = Mod::build_from_version(client, ver).await {
+//                 mods.push(m);
+//                 new_deps += 1;
+//             }
+//         }
+//     };
+//     if new_deps > 0 {
+//         Box::pin(resolve_dependencies(client, query, mods)).await
+//     } else {
+//         // println!("No deps found");
+//         Box::pin(())
+//     }
+// }
 
-pub async fn handle_single_input<'a>(
-    conf: &arguments::Config<'a>,
-    client: &reqwest::Client,
-    id: &str,
-    out_dir: &PathBuf
-) -> Result<(), Box<dyn error::Error>> {
-    if conf.options().get_verify() {
-        verify_id(
-            conf,
-            client,
-            id,
-            out_dir
-        ).await?;
-    } else {
-        download_from_id(
-            conf,
-            client,
-            id,
-            out_dir
-        ).await?;
-    };
-    Ok(())
-}
+// #[derive(Deserialize)]
+// pub struct Project {
+//     id: String,
+//     title: String,
+//     description: String,
+// }
+
+// impl Project {
+//     pub fn get_id(&self) -> &String {
+//         &self.id
+//     }
+//     pub fn get_title(&self) -> &String {
+//         &self.title
+//     }
+//     pub fn get_desc(&self) -> &String {
+//         &self.description
+//     }
+// }
+
+// #[derive(Deserialize)]
+// pub struct Version {
+//     id: String,
+//     project_id: String,
+//     name: String,
+//     version_number: String,
+//     files: Vec<ModrinthFile>,
+//     #[serde(deserialize_with = "deserialize_only_required_deps")]
+//     dependencies: Vec<RequiredDependency>
+// }
+
+// impl Version {
+//     pub fn id(&self) -> &String{
+//         &self.id
+//     }
+//     pub fn project_id(&self) -> &String {
+//         &self.project_id
+//     }
+//     pub fn name(&self) -> &String {
+//         &self.name
+//     }
+//     pub fn version_number(&self) -> &String {
+//         &self.version_number
+//     }
+//     pub fn files(&self) -> &Vec<ModrinthFile> {
+//         &self.files
+//     }
+//     pub fn dependencies(&self) -> &Vec<RequiredDependency> {
+//         &self.dependencies
+//     }
+// }
+
+// impl Clone for Version {
+//     fn clone(&self) -> Self {
+//         Version {
+//             id: self.id.clone(),
+//             project_id: self.project_id.clone(),
+//             name: self.name.clone(),
+//             version_number: self.version_number.clone(),
+//             files: self.files.clone(),
+//             dependencies: self.dependencies.clone()
+//         }
+//     }
+// }
+
+// #[derive(Deserialize)]
+// pub struct Dependency {
+//     version_id: Option<String>,
+//     project_id: Option<String>,
+//     dependency_type: String
+// }
+
+// pub struct RequiredDependency {
+//     version_id: Option<String>,
+//     project_id: Option<String>,
+// }
+
+// impl RequiredDependency {
+//     pub fn from_dep(dep: Dependency) -> Self {
+//         RequiredDependency {
+//             version_id: dep.version_id,
+//             project_id: dep.project_id
+//         }
+//     }
+//     pub fn version_id(&self) -> &Option<String> {
+//         &self.version_id
+//     }
+//     pub fn project_id(&self) -> &Option<String> {
+//         &self.project_id
+//     }
+//     pub async fn resolve_to_version(
+//         &self,
+//         client: &reqwest::Client,
+//         query: &VersionQuery
+//     ) -> Result<Version, ModError>{
+//         if let Some(v) = &self.version_id {
+//             return match get_version_from_version_id(client, v).await {
+//                 Ok(v) => Ok(v),
+//                 Err(e) => Err(ModError::BadRequest(e))
+//             }
+//         } else if let Some(p) = &self.project_id {
+//             return get_top_version(client, p, query).await
+//         } else {
+//             return Err(ModError::NoDependency("Could not resolve dependency".to_string()))
+//         }
+//     }
+// }
+
+// impl Clone for RequiredDependency {
+//     fn clone(&self) -> Self {
+//         RequiredDependency {
+//             version_id: self.version_id.clone(),
+//             project_id: self.project_id.clone(),
+//         }
+//     }
+// }
+
+// fn deserialize_only_required_deps<'de, D>(
+//     deserializer: D
+// ) -> Result<Vec<RequiredDependency>, D::Error> 
+//     where D: Deserializer<'de>
+// {
+//     let deps: Vec<Dependency> = Deserialize::deserialize(deserializer)?;
+//     Ok (deps.into_iter()
+//         .filter_map(|d|
+//             if d.dependency_type == "required" {
+//                 Some(RequiredDependency::from_dep(d))
+//             } else {
+//                 None
+//             }
+//         )
+//         .collect()
+//     )
+// }
+
+
+// #[derive(Serialize)]
+// pub struct VersionQuery {
+//     game_versions: String,
+//     loaders: String
+// }
+
+// impl VersionQuery {
+//     fn build_param_array(user_params: &String) -> String {
+//         let mut params = user_params.split(",");
+//         let mut res: String = String::from("[");
+//         res = format!("{}\"{}\"",
+//             res,
+//             params.next().unwrap_or(""),
+//         );
+//         while let Some(prm) = params.next() {
+//             res = format!("{},\"{}\"",
+//                 res,
+//                 prm,
+//             );
+//         }
+//         format!("{}]", res)
+//     }
+//     pub fn build_query(user_mcvs: &String, user_loader: &String) -> VersionQuery {
+//         let game_versions= Self::build_param_array(user_mcvs);
+//         let loaders= Self::build_param_array(user_loader);
+//         VersionQuery { game_versions, loaders }
+//     }
+//     pub fn mcvs(&self) -> &str {
+//         &self.game_versions.as_str()
+//     }
+//     pub fn loader(&self) -> &str {
+//         &self.loaders.as_str()
+//     }
+// }
+
+// pub async fn get_project(
+//     client: &reqwest::Client,
+//     id: &str
+// ) -> Result<Project, reqwest::Error>
+// {
+//     let url = format!("{}{}{}", MODRINTH_URL, "/v2/project/", id);
+//     let response = client.get(url)
+//         .send()
+//         .await?;
+//     response.json::<Project>().await
+// }
+
+// pub async fn get_projects_from_list(
+//     client: &reqwest::Client,
+//     ids: &Vec<String>
+// ) -> Vec<Result<Project, reqwest::Error>>
+// {
+//     let mut responses = Vec::new();
+//     for id in ids {
+//         responses.push(get_project(client, id));
+//     }
+//     future::join_all(responses).await
+// }
+
+// pub async fn get_version(
+//     client: &reqwest::Client,
+//     project_id: &str,
+//     query: &VersionQuery
+// ) -> Result<Vec<Version>, reqwest::Error>
+// {
+//     let url = format!("{}{}{}{}",
+//         MODRINTH_URL,
+//         "/v2/project/",
+//         project_id,
+//         "/version"
+//     );
+//     let response = client.get(url)
+//         .query(query)
+//         .send()
+//         .await?;
+//     response.json::<Vec<Version>>().await
+// }
+
+// pub async fn get_version_from_version_id(
+//     client: &reqwest::Client,
+//     id: &String
+// ) -> Result<Version, reqwest::Error> {
+//     let url = format!("{}/v2/version/{}", MODRINTH_URL, id);
+//     let response = client.get(url)
+//         .send()
+//         .await?;
+//     response.json::<Version>().await
+// }
+
+// pub async fn get_top_version(
+//     client: & reqwest::Client,
+//     project_id: &str,
+//     query: &VersionQuery
+// ) -> Result<Version, ModError>
+// {
+//     let response = get_version(client, project_id, query).await?;
+//     match response.get(0).cloned() {
+//         Some(v) => Ok(v),
+//         None => {
+//             Err(ModError::NoVersionForId(
+//                 project_id.to_string()
+//             ))
+//         }
+//     }
+// }
+
+// pub fn search_for_primary_file(files: &Vec<ModrinthFile>) -> Option<usize> {
+//     if files.len() == 0 {
+//         return None; // If there are no files
+//     }
+//     for (i, file) in files.iter().enumerate() {
+//         if file.primary { return Some(i); }
+//     }
+//     Some(0) // If no file is marked primary, return 1st file
+// }
+
+// pub enum FileVerification {
+//     Ok,
+//     NotExists,
+//     BadHash,
+//     BadFile
+// }
+
+// async fn collect_mods(
+//     client: & reqwest::Client,
+//     ids: &Vec<String>,
+//     query: &VersionQuery
+// ) -> Vec<Mod>
+// {
+//     let mut mods = Vec::new();
+//     for id in ids {
+//         mods.push(Mod::build_from_project_id(client, id.to_string(), query));
+//     }
+//     future::join_all(mods)
+//     .await
+//     .into_iter()
+//     .filter_map(|m| {
+//         if let Err(e) = m {
+//             println!("{e}");
+//             return None
+//         } else {
+//             return m.ok()
+//         }
+//     })
+//     .collect()
+// }
+
+// async fn download_mods(
+//     client: & reqwest::Client,
+//     mods: &Vec<Mod>,
+//     out_dir: &PathBuf
+// ) -> () {
+//     let mut download_tasks = Vec::new();
+//     for m in mods {
+//         download_tasks.push(m.download(client, out_dir));
+//     }
+//     for e in future::join_all(download_tasks)
+//     .await
+//     .into_iter()
+//     .filter_map(Result::err)
+//     .collect::<Vec<DownloadError>>() {
+//         println!("{e}");
+//     };
+//     ()
+// }
+
+// async fn download_from_id_list<'a>(
+//     conf: &arguments::Config<'a>,
+//     client: & reqwest::Client,
+//     ids: &Vec<String>,
+//     out_dir: &PathBuf
+// ) -> ()
+// {
+//     let query = VersionQuery::build_query(
+//         conf.mcvs(),
+//         &conf.loader_as_string()
+//     );
+//     let mut mods: Vec<Mod> = collect_mods(client, ids, &query).await;
+//     if conf.options().get_skip_deps() {
+//         println!("[MODRINTH] Skipping dependencies...");
+//     } else {
+//         println!("[MODRINTH] Getting dependencies...");
+//         resolve_dependencies(client, &query, &mut mods).await;
+//     }
+//     download_mods(client, &mods, out_dir).await;
+//     ()
+// }
+
+// async fn verify_ids_from_list<'a>(
+//     conf: &arguments::Config<'a>,
+//     client: & reqwest::Client,
+//     ids: &Vec<String>,
+//     out_dir: &PathBuf
+// ) -> () {
+//     println!(
+//         "Checking provided IDs against folder '{}'; dependencies NOT included...",
+//         out_dir.display()
+//     );
+//     let query = VersionQuery::build_query(
+//         &conf.mcvs(),
+//         &conf.loader_as_string()
+//     );
+//     let mods: Vec<Mod> = collect_mods(client, ids, &query).await;
+//     let mut bad_results: u32 = 0;
+//     for m in &mods {
+//         let v_res = m.verify(out_dir);
+//         if !v_res.is_ok() {
+//             bad_results += 1;
+//         };
+//         v_res.print();
+//     };
+//     if bad_results > 0 {
+//         println!("\n{} out of {} mods were unable to be verified", bad_results, mods.len());
+//     } else {
+//         println!("All mods verified successfully");
+//     };
+// }
+
+// async fn download_from_id<'a>(
+//     conf: &arguments::Config<'a>,
+//     client: & reqwest::Client,
+//     id: &str,
+//     out_dir: &PathBuf
+// ) -> Result<(), Box<dyn error::Error>>
+// {
+//     let query = VersionQuery::build_query(
+//         conf.mcvs(),
+//         &conf.loader_as_string()
+//     );
+//     let mut mods: Vec<Mod> = Vec::new();
+//     mods.push(Mod::build_from_project_id(
+//         client, 
+//         id.to_string(), 
+//         &query
+//     ).await?);
+//     if conf.options().get_skip_deps() {
+//         println!("[MODRINTH] Skipping dependencies...");
+//     } else {
+//         println!("[MODRINTH] Getting dependencies...");
+//         resolve_dependencies(client, &query, &mut mods).await;
+//     }
+//     download_mods(client, &mods, out_dir).await;
+//     Ok(())
+// }
+
+// async fn verify_id<'a> (
+//     conf: &arguments::Config<'a>,
+//     client: & reqwest::Client,
+//     id: &str,
+//     out_dir: &PathBuf
+// ) -> Result<(), ModError> {
+//     let query = VersionQuery::build_query(
+//         &conf.mcvs(),
+//         &conf.loader_as_string()
+//     );
+//     let m = Mod::build_from_project_id(
+//         client, 
+//         id.to_string(), 
+//         &query
+//     ).await?;
+//     m.verify(out_dir).print();
+//     Ok(())
+// }
+
+// pub async fn list_projects(
+//     client: &reqwest::Client,
+//     id_list: &Vec<String>,
+// ) -> () {
+//     let projs = get_projects_from_list(client, id_list).await;
+//     for proj_res in projs {
+//         if let Ok(p) = proj_res {
+//             let proj_id = p.get_id();
+//             let proj_title = p.get_title();
+//             println!("ID '{proj_id}' -> '{proj_title}'");
+//         }
+//     }
+//     ()
+// }
+
+// pub async fn handle_list_input<'a>(
+//     conf: &arguments::Config<'a>,
+//     client: &reqwest::Client,
+//     id_list: &Vec<String>,
+//     out_dir: &PathBuf
+// ) -> Result<(), Box<dyn error::Error>> {
+//     if conf.options().get_verify() {
+//         verify_ids_from_list(
+//             conf,
+//             client,
+//             id_list,
+//             out_dir
+//         ).await;
+//     } else {
+//         download_from_id_list(
+//             conf,
+//             client,
+//             id_list,
+//             out_dir
+//         ).await;
+//     };
+//     Ok(())
+// }
+
+// pub async fn handle_single_input<'a>(
+//     conf: &arguments::Config<'a>,
+//     client: &reqwest::Client,
+//     id: &str,
+//     out_dir: &PathBuf
+// ) -> Result<(), Box<dyn error::Error>> {
+//     if conf.options().get_verify() {
+//         verify_id(
+//             conf,
+//             client,
+//             id,
+//             out_dir
+//         ).await?;
+//     } else {
+//         download_from_id(
+//             conf,
+//             client,
+//             id,
+//             out_dir
+//         ).await?;
+//     };
+//     Ok(())
+// }

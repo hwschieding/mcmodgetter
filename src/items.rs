@@ -70,7 +70,7 @@ impl VerificationResult {
     }
 }
 
-pub trait Project {
+pub trait Item {
     fn build() -> impl std::future::Future<Output = Self> + Send;
     fn download() -> impl std::future::Future<Output = Result<(), DownloadError>> + Send;
     fn name() -> String;

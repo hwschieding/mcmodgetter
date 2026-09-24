@@ -7,7 +7,7 @@ mod tests;
 pub mod modrinth;
 pub mod arguments;
 pub mod file_parse;
-pub mod projects;
+pub mod items;
 pub mod http_handler;
 
 const DEFAULT_OUT_DIR: &str = "mods";

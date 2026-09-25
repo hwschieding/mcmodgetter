@@ -43,7 +43,7 @@ pub async fn read_mods<'a>(
 pub async fn id_from_file<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
-    out_dir: &PathBuf
+    out_dir: PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     if let Some(filename) = conf.options().get_file() {
@@ -51,6 +51,7 @@ pub async fn id_from_file<'a>(
 
         if let Some(modrinth_ids) = ids.modrinth() {
             println!("Handling modrinth ids...");
+            modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await;
             // modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
         };
         // if let Some(curse_ids) = ids.curseforge() {

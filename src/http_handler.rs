@@ -180,10 +180,10 @@ impl<'a> Downloader<'a>
         {
             Some(p) => {
                 fs::File::create(&p)?.write_all(bytes)?;
-                println!("{}", Self::msg("Download successful"));
+                println!("{} '{}'", Self::msg("Successfully downloaded"), filename);
                 Ok(())
             }
-            None => Err(DownloadError::Unknown(String::from("Filename unsafe")))
+            None => Err(DownloadError::Unknown(format!("Filename '{}' unsafe", filename)))
         }
     }
 

@@ -32,7 +32,7 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
             id_from_file(
                 &conf,
                 &client,
-                &out_dir
+                out_dir
             ).await?;
         },
         AppMode::DownloadId => {

@@ -11,7 +11,7 @@ async fn test_modrinth_item_build()
     let version_requester = QueryRequest::<VersionQuery>::build(&client, query);
     static PROJECT_ID: &str = "P7dR8mSH";
 
-    let item = ModrinthItem::build_from_id(version_requester, PROJECT_ID).await.expect("should not fail");
+    let item = ModrinthItem::build_from_id(&version_requester, PROJECT_ID).await.expect("should not fail");
     assert_eq!(item.id(), "P7dR8mSH");
     assert_eq!(item.version_id(), "bNnaTiuM");
     assert_eq!(item.version_title(), "[26.3] Fabric API 0.161.0+26.3");

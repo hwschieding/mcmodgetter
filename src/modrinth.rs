@@ -1,16 +1,14 @@
-use std::pin::Pin;
-use std::{fmt, fs, error};
+use std::{fmt, error};
 use std::collections::HashSet;
-use std::io::{self, Write};
-use std::path::{self, PathBuf};
+use std::path::PathBuf;
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
 use sha2::digest::Output;
 use sha2::{Sha512, Digest};
 
-use crate::http_handler::DownloadError::BadRequest;
-use crate::http_handler::Downloader;
+use crate::http_handler::{Downloader};
+use crate::items::Item;
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
 
 static MODRINTH_URL: &str = "https://api.modrinth.com/v2";
@@ -77,7 +75,8 @@ pub struct ModrinthItem
     id: String,
     version_title: String,
     version_id: String,
-    downloadable: ModrinthFile
+    downloadable: ModrinthFile,
+    dependencies: Vec<RequiredDependency>
 }
 impl items::Item for ModrinthItem
 {
@@ -104,6 +103,30 @@ impl ModrinthItem
         &self.version_id
     }
 
+    fn build_from_version(
+        mut version: ModrinthVersion
+    ) -> Result<Self, ModrinthItemError>
+    {
+        if version.files.len() == 0
+        {
+            return Err(ModrinthItemError::NoFile(String::from("No files for this version")));
+        }
+
+        let downloadable: ModrinthFile = match version.get_primary_file()
+        {
+            Some(idx) => version.files.swap_remove(idx),
+            None => version.files.swap_remove(0)
+        };
+
+        Ok(ModrinthItem {
+            id: version.project_id,
+            version_title: version.name,
+            version_id: version.id,
+            downloadable,
+            dependencies: version.dependencies
+        })
+    }
+
     fn build_from_id_and_version(
         project_id: &str,
         mut version: ModrinthVersion
@@ -125,12 +148,13 @@ impl ModrinthItem
             id: project_id.to_string(),
             version_title: version.name,
             version_id: version.id,
-            downloadable
+            downloadable,
+            dependencies: version.dependencies
         })
     }
     
     pub async fn build_from_id<'a>(
-        version_requester: http_handler::QueryRequest<'a, VersionQuery>,
+        version_requester: &http_handler::QueryRequest<'a, VersionQuery>,
         project_id: &str
     ) -> Result<Self, ModrinthItemError>
     {
@@ -142,7 +166,7 @@ impl ModrinthItem
 
         if versions.len() == 0
         {
-            return Err(ModrinthItemError::NoVersion(String::from("No version available")));
+            return Err(ModrinthItemError::NoVersion(format!("No version for id '{}'", project_id)));
         }
 
         let selected_version = versions.swap_remove(0);
@@ -150,6 +174,54 @@ impl ModrinthItem
         Self::build_from_id_and_version(project_id, selected_version)
     }
 
+    async fn build_from_version_id<'a>(
+        direct_requester: &http_handler::BasicRequest<'a>,
+        version_id: &str
+    ) -> Result<Self, ModrinthItemError>
+    {
+        let url = format!("{}/version/{}", MODRINTH_URL, version_id);
+        Self::build_from_version(direct_requester.retrieve_deserialized::<ModrinthVersion>(&url).await?)
+    }
+
+    async fn try_dep<'a>(
+        requester: &DependencyRequester<'a>,
+        dep: &RequiredDependency
+    ) -> Option<Self>
+    {
+        if let Some(id) = &dep.version_id
+            && let Ok(m) = Self::build_from_version_id(requester.version_id_requester(), id).await
+        {
+            Some(m)
+        }
+        else if let Some(id) = &dep.project_id
+            && let Ok(m) = Self::build_from_id(requester.project_id_requester(), id).await
+        {
+            Some(m)
+        }
+        else
+        {
+            None
+        }
+    }
+
+    async fn get_dependencies<'a>(
+        &self,
+        requester: &DependencyRequester<'a>
+    ) -> Vec<Self>
+    {
+        let mut res: Vec<Self> = Vec::new();
+
+        for dep in &self.dependencies
+        {
+            match Self::try_dep(requester, dep).await
+            {
+                Some(m) => { res.push(m); },
+                None => { modrinth_msg(&format!("Couldn't acquire dependency for id '{}'", self.id)); }
+            }
+        }
+        
+        res
+    }
 }
 
 #[derive(Deserialize)]
@@ -157,7 +229,10 @@ struct ModrinthVersion
 {
     name: String,
     id: String,
-    files: Vec<ModrinthFile>
+    project_id: String,
+    files: Vec<ModrinthFile>,
+    #[serde(deserialize_with = "deserialize_only_required_deps")]
+    dependencies: Vec<RequiredDependency>,
 }
 
 impl ModrinthVersion
@@ -175,7 +250,9 @@ impl Clone for ModrinthVersion
         {
             name: self.name.clone(),
             id: self.id.clone(),
+            project_id: self.project_id.clone(),
             files: self.files.clone(),
+            dependencies: self.dependencies.clone()
         }
     }
 }
@@ -283,6 +360,227 @@ impl VersionQuery {
     pub fn loader(&self) -> &str {
         &self.loaders.as_str()
     }
+}
+
+#[derive(Deserialize)]
+pub struct Dependency {
+    version_id: Option<String>,
+    project_id: Option<String>,
+    dependency_type: String
+}
+
+pub struct RequiredDependency {
+    version_id: Option<String>,
+    project_id: Option<String>,
+}
+
+impl RequiredDependency {
+    pub fn from_dep(dep: Dependency) -> Self {
+        RequiredDependency {
+            version_id: dep.version_id,
+            project_id: dep.project_id
+        }
+    }
+    pub fn version_id(&self) -> &Option<String> {
+        &self.version_id
+    }
+    pub fn project_id(&self) -> &Option<String> {
+        &self.project_id
+    }
+    // pub async fn resolve_to_version(
+    //     &self,
+    //     client: &reqwest::Client,
+    //     query: &VersionQuery
+    // ) -> Result<Version, ModError>{
+    //     if let Some(v) = &self.version_id {
+    //         return match get_version_from_version_id(client, v).await {
+    //             Ok(v) => Ok(v),
+    //             Err(e) => Err(ModError::BadRequest(e))
+    //         }
+    //     } else if let Some(p) = &self.project_id {
+    //         return get_top_version(client, p, query).await
+    //     } else {
+    //         return Err(ModError::NoDependency("Could not resolve dependency".to_string()))
+    //     }
+    // }
+}
+
+impl Clone for RequiredDependency {
+    fn clone(&self) -> Self {
+        RequiredDependency {
+            version_id: self.version_id.clone(),
+            project_id: self.project_id.clone(),
+        }
+    }
+}
+
+fn deserialize_only_required_deps<'de, D>(
+    deserializer: D
+) -> Result<Vec<RequiredDependency>, D::Error> 
+    where D: Deserializer<'de>
+{
+    let deps: Vec<Dependency> = Deserialize::deserialize(deserializer)?;
+    Ok (deps.into_iter()
+        .filter_map(|d|
+            if d.dependency_type == "required" {
+                Some(RequiredDependency::from_dep(d))
+            } else {
+                None
+            }
+        )
+        .collect()
+    )
+}
+
+struct DependencyRequester<'a>
+{
+    pid_req: &'a http_handler::QueryRequest<'a, VersionQuery>,
+    vid_req: &'a http_handler::BasicRequest<'a>,
+}
+impl<'a> DependencyRequester<'a>
+{
+    pub fn build(
+        pid_req: &'a http_handler::QueryRequest<'a, VersionQuery>,
+        vid_req: &'a http_handler::BasicRequest<'a>
+    ) -> DependencyRequester<'a>
+    {
+        DependencyRequester { pid_req, vid_req }
+    }
+
+    pub fn project_id_requester(&self) -> &'a http_handler::QueryRequest<'a, VersionQuery>
+    {
+        self.pid_req
+    }
+    pub fn version_id_requester(&self) -> &'a http_handler::BasicRequest<'a>
+    {
+        self.vid_req
+    }
+}
+
+struct DependencyHandler<'a>
+{
+    modlist: &'a mut Vec<ModrinthItem>,
+    dep_check_stack: Vec<usize>,
+    present_ids: HashSet<String>,
+}
+impl<'a> DependencyHandler<'a>
+{
+    pub fn build(modlist: &'a mut Vec<ModrinthItem>) -> Self
+    {
+        let dep_check_stack: Vec<usize> = (0..modlist.len()).collect();
+        let present_ids: HashSet<String> = modlist
+            .iter()
+            .map(|item| item.id.clone())
+            .collect()
+        ;
+        DependencyHandler { modlist, dep_check_stack, present_ids }
+    }
+
+    async fn try_get_deps(&mut self, requester: &DependencyRequester<'a>, idx: &usize)
+    {
+        let deps = {
+            match self.modlist.get(*idx)
+            {
+                Some(item) => item.get_dependencies(requester).await,
+                None => { return () }
+            }
+        };
+
+        let curr_size = self.modlist.len();
+
+        for (i, value) in deps
+            .into_iter()
+            .enumerate()
+        {
+            if !self.present_ids.contains(&value.id){
+                self.present_ids.insert(value.id.clone());
+
+                self.dep_check_stack.push(curr_size + i);
+                self.modlist.push(value);
+            }
+        }
+    }
+
+    pub async fn acquire_all_dependencies(&mut self, requester: &DependencyRequester<'a>) -> ()
+    {
+        while let Some(idx) = self.dep_check_stack.pop()
+        {
+            self.try_get_deps(requester, &idx).await;
+        }
+    }
+}
+
+async fn collect_mods<'a>(
+    requester: &http_handler::QueryRequest<'a, VersionQuery>,
+    ids: &Vec<String>,
+) -> Vec<ModrinthItem>
+{
+    let mut mods = Vec::new();
+    for id in ids {
+        mods.push(ModrinthItem::build_from_id(requester, id));
+    }
+    future::join_all(mods)
+    .await
+    .into_iter()
+    .filter_map(|m| {
+        if let Err(e) = m {
+            println!("{e}");
+            return None
+        } else {
+            return m.ok()
+        }
+    })
+    .collect()
+}
+
+async fn download_mods<'a>(
+    downloader: &http_handler::Downloader<'a>,
+    mods: &Vec<ModrinthItem>,
+) -> ()
+{
+    let mut download_futures = Vec::new();
+
+    for m in mods
+    {
+        download_futures.push(m.download(downloader));
+    }
+
+    for e in future::join_all(download_futures)
+        .await
+        .into_iter()
+        .filter_map(Result::err)
+        .collect::<Vec<http_handler::DownloadError>>()
+    {
+        println!("{e}");
+    };
+    ()
+}
+
+pub async fn download_from_id_list<'a>(
+    conf: &arguments::Config<'a>,
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: PathBuf
+) -> ()
+{
+    let query = VersionQuery::build_query(
+        conf.mcvs(),
+        &conf.loader_as_string()
+    );
+    let pid_requester = http_handler::QueryRequest::<VersionQuery>::build(client, query);
+
+    // Get modlist
+    let mut items = collect_mods(&pid_requester, ids).await;
+
+    // Get dependencies
+    let vid_requester = http_handler::BasicRequest::build(client);
+    let dep_requester = DependencyRequester::build(&pid_requester, &vid_requester);
+    let mut dep_handler = DependencyHandler::build(&mut items);
+    dep_handler.acquire_all_dependencies(&dep_requester).await;
+
+    // Download
+    let downloader = http_handler::Downloader::build(client, out_dir);
+    download_mods(&downloader, &items).await;
 }
 
 // #[derive(Debug)]
@@ -683,76 +981,6 @@ impl VersionQuery {
 //             dependencies: self.dependencies.clone()
 //         }
 //     }
-// }
-
-// #[derive(Deserialize)]
-// pub struct Dependency {
-//     version_id: Option<String>,
-//     project_id: Option<String>,
-//     dependency_type: String
-// }
-
-// pub struct RequiredDependency {
-//     version_id: Option<String>,
-//     project_id: Option<String>,
-// }
-
-// impl RequiredDependency {
-//     pub fn from_dep(dep: Dependency) -> Self {
-//         RequiredDependency {
-//             version_id: dep.version_id,
-//             project_id: dep.project_id
-//         }
-//     }
-//     pub fn version_id(&self) -> &Option<String> {
-//         &self.version_id
-//     }
-//     pub fn project_id(&self) -> &Option<String> {
-//         &self.project_id
-//     }
-//     pub async fn resolve_to_version(
-//         &self,
-//         client: &reqwest::Client,
-//         query: &VersionQuery
-//     ) -> Result<Version, ModError>{
-//         if let Some(v) = &self.version_id {
-//             return match get_version_from_version_id(client, v).await {
-//                 Ok(v) => Ok(v),
-//                 Err(e) => Err(ModError::BadRequest(e))
-//             }
-//         } else if let Some(p) = &self.project_id {
-//             return get_top_version(client, p, query).await
-//         } else {
-//             return Err(ModError::NoDependency("Could not resolve dependency".to_string()))
-//         }
-//     }
-// }
-
-// impl Clone for RequiredDependency {
-//     fn clone(&self) -> Self {
-//         RequiredDependency {
-//             version_id: self.version_id.clone(),
-//             project_id: self.project_id.clone(),
-//         }
-//     }
-// }
-
-// fn deserialize_only_required_deps<'de, D>(
-//     deserializer: D
-// ) -> Result<Vec<RequiredDependency>, D::Error> 
-//     where D: Deserializer<'de>
-// {
-//     let deps: Vec<Dependency> = Deserialize::deserialize(deserializer)?;
-//     Ok (deps.into_iter()
-//         .filter_map(|d|
-//             if d.dependency_type == "required" {
-//                 Some(RequiredDependency::from_dep(d))
-//             } else {
-//                 None
-//             }
-//         )
-//         .collect()
-//     )
 // }
 
 

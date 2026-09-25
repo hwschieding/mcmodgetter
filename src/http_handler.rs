@@ -155,6 +155,11 @@ pub struct Downloader<'a>
 }
 impl<'a> Downloader<'a>
 {
+    pub fn build(client: &'a reqwest::Client, out_dir: PathBuf) -> Self
+    {
+        Downloader { client, output_directory: (out_dir) }
+    }
+
     fn msg(s: &str) -> String
     {
         format!("[{}] {}", DOWNLOAD_SIG, s)

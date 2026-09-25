@@ -32,7 +32,7 @@ pub async fn read_mods<'a>(
     if let Some(filename) = conf.options().get_file() {
         let ids = get_ids(filename)?;
         if let Some(modrinth_ids) = ids.modrinth() {
-            modrinth::list_projects(client, modrinth_ids).await;
+            // modrinth::list_projects(client, modrinth_ids).await;
         }
     } else {
         println!("Couldn't get filename");
@@ -51,7 +51,7 @@ pub async fn id_from_file<'a>(
 
         if let Some(modrinth_ids) = ids.modrinth() {
             println!("Handling modrinth ids...");
-            modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
+            // modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
         };
         // if let Some(curse_ids) = ids.curseforge() {
         //     for id in curse_ids {
@@ -76,7 +76,7 @@ pub async fn single_id<'a>(
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     if let Some(id) = conf.options().get_id() {
-        modrinth::handle_single_input(conf, client, id, out_dir).await?;
+        // modrinth::handle_single_input(conf, client, id, out_dir).await?;
     }
     Ok(())
 }

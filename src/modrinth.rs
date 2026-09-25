@@ -13,7 +13,7 @@ use crate::http_handler::DownloadError::BadRequest;
 use crate::http_handler::Downloader;
 use crate::{arguments, http_handler, items};
 
-static MODRINTH_URL: &str = "https://api.modrinth.com";
+static MODRINTH_URL: &str = "https://api.modrinth.com/v2";
 static MODRINTH_SIG: &str = "MODRINTH";
 
 fn modrinth_msg(s: &str) -> String
@@ -72,7 +72,7 @@ impl From<reqwest::Error> for ModrinthItemError
     }
 }
 
-struct ModrinthItem
+pub struct ModrinthItem
 {
     id: String,
     version_title: String,
@@ -91,7 +91,23 @@ impl items::Item for ModrinthItem
 }
 impl ModrinthItem
 {
-    fn build_from_id_and_version(project_id: &str, version: &mut ModrinthVersion) -> Result<Self, ModrinthItemError>
+    pub fn id(&self) -> &String
+    {
+        &self.id
+    }
+    pub fn version_title(&self) -> &String
+    {
+        &self.version_title
+    }
+    pub fn version_id(&self) -> &String
+    {
+        &self.version_id
+    }
+
+    fn build_from_id_and_version(
+        project_id: &str,
+        mut version: ModrinthVersion
+    ) -> Result<Self, ModrinthItemError>
     {
         
         if version.files.len() == 0
@@ -99,29 +115,24 @@ impl ModrinthItem
             return Err(ModrinthItemError::NoFile(String::from("No files for this version")));
         }
 
-        let downloadable: ModrinthFile;
-
-        if let Some(idx) = version.get_primary_file()
+        let downloadable: ModrinthFile = match version.get_primary_file()
         {
-            downloadable = version.files.swap_remove(idx);
-        } else {
-            downloadable = version.files.swap_remove(0);
-        }
+            Some(idx) => version.files.swap_remove(idx),
+            None => version.files.swap_remove(0)
+        };
 
         Ok(ModrinthItem {
             id: project_id.to_string(),
-            version_title: version.name.clone(),
-            version_id: version.id.clone(),
+            version_title: version.name,
+            version_id: version.id,
             downloadable
         })
     }
     
-    pub async fn build_from_id<'a, T>(
-        version_requester: http_handler::Request<'a, T>,
+    pub async fn build_from_id<'a>(
+        version_requester: http_handler::Request<'a, VersionQuery>,
         project_id: &str
     ) -> Result<Self, ModrinthItemError>
-    where 
-        T: Serialize
     {
         let url = format!("{}/project/{}/version", MODRINTH_URL, project_id);
 
@@ -134,9 +145,9 @@ impl ModrinthItem
             return Err(ModrinthItemError::NoVersion(String::from("No version available")));
         }
 
-        let mut selected_version = versions.swap_remove(0);
+        let selected_version = versions.swap_remove(0);
 
-        Self::build_from_id_and_version(project_id, &mut selected_version)
+        Self::build_from_id_and_version(project_id, selected_version)
     }
 
 }
@@ -242,6 +253,41 @@ fn deserialize_hex_str_to_bytes<'de, D>(
 {
     let hex_data: String = Deserialize::deserialize(deserializer)?;
     hex::decode(hex_data).map_err(D::Error::custom)
+}
+
+#[derive(Serialize)]
+pub struct VersionQuery {
+    game_versions: String,
+    loaders: String
+}
+
+impl VersionQuery {
+    fn build_param_array(user_params: &String) -> String {
+        let mut params = user_params.split(",");
+        let mut res: String = String::from("[");
+        res = format!("{}\"{}\"",
+            res,
+            params.next().unwrap_or(""),
+        );
+        while let Some(prm) = params.next() {
+            res = format!("{},\"{}\"",
+                res,
+                prm,
+            );
+        }
+        format!("{}]", res)
+    }
+    pub fn build_query(user_mcvs: &String, user_loader: &String) -> VersionQuery {
+        let game_versions= Self::build_param_array(user_mcvs);
+        let loaders= Self::build_param_array(user_loader);
+        VersionQuery { game_versions, loaders }
+    }
+    pub fn mcvs(&self) -> &str {
+        &self.game_versions.as_str()
+    }
+    pub fn loader(&self) -> &str {
+        &self.loaders.as_str()
+    }
 }
 
 // #[derive(Debug)]
@@ -714,41 +760,6 @@ fn deserialize_hex_str_to_bytes<'de, D>(
 //     )
 // }
 
-
-// #[derive(Serialize)]
-// pub struct VersionQuery {
-//     game_versions: String,
-//     loaders: String
-// }
-
-// impl VersionQuery {
-//     fn build_param_array(user_params: &String) -> String {
-//         let mut params = user_params.split(",");
-//         let mut res: String = String::from("[");
-//         res = format!("{}\"{}\"",
-//             res,
-//             params.next().unwrap_or(""),
-//         );
-//         while let Some(prm) = params.next() {
-//             res = format!("{},\"{}\"",
-//                 res,
-//                 prm,
-//             );
-//         }
-//         format!("{}]", res)
-//     }
-//     pub fn build_query(user_mcvs: &String, user_loader: &String) -> VersionQuery {
-//         let game_versions= Self::build_param_array(user_mcvs);
-//         let loaders= Self::build_param_array(user_loader);
-//         VersionQuery { game_versions, loaders }
-//     }
-//     pub fn mcvs(&self) -> &str {
-//         &self.game_versions.as_str()
-//     }
-//     pub fn loader(&self) -> &str {
-//         &self.loaders.as_str()
-//     }
-// }
 
 // pub async fn get_project(
 //     client: &reqwest::Client,

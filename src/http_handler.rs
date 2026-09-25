@@ -1,4 +1,4 @@
-use std::{error, fmt, fs, io::{self, Write}, path};
+use std::{error, fmt, fs, io::{self, Write}, path::{Path, PathBuf}};
 
 use reqwest::Response;
 use serde::{Serialize, de::DeserializeOwned};
@@ -12,6 +12,7 @@ pub enum DownloadError {
     BadRequest(reqwest::Error),
     BadFile(io::Error),
     BadVerify(String),
+    Unknown(String),
 }
 
 impl DownloadError
@@ -34,6 +35,9 @@ impl fmt::Display for DownloadError {
             Self::BadVerify(msg) => write!(
                 f, "{}{}", Self::err_str("Bad verification: "), msg
             ),
+            Self::Unknown(msg) => write!(
+                f, "{}{}", Self::err_str("Something weird: "), msg
+            )
         }
     }
 }
@@ -60,21 +64,78 @@ impl From<std::io::Error> for DownloadError {
     }
 }
 
-pub struct Request<'a, T>
+pub trait HttpRequest
+{
+    #[allow(async_fn_in_trait)]
+    async fn get_serialized_response(
+        &self,
+        url: &str
+    ) -> reqwest::Result<Response>;
+
+    #[allow(async_fn_in_trait)]
+    async fn retrieve_deserialized<U>(
+        &self,
+        url: &str
+    ) -> reqwest::Result<U>
+    where
+        U: DeserializeOwned
+    {
+        self.get_serialized_response(url)
+            .await?
+            .json::<U>()
+            .await
+    }
+}
+
+pub struct BasicRequest<'a>
+{
+    client: &'a reqwest::Client
+}
+
+impl<'a> BasicRequest<'a>
+{
+    pub fn build(client: &'a reqwest::Client) -> BasicRequest<'a>
+    {
+        BasicRequest { client }
+    }
+}
+
+impl<'a> HttpRequest for BasicRequest<'a>
+{
+    async fn get_serialized_response(
+        &self,
+        url: &str
+    ) -> reqwest::Result<Response>
+    {
+        self.client.get(url)
+            .send()
+            .await
+    }
+}
+
+#[derive(Serialize)]
+pub struct EmptyQuery{}
+
+pub struct QueryRequest<'a, T>
 {
     client: &'a reqwest::Client,
     query: T
 }
 
-impl<'a, T> Request<'a, T>
+impl<'a, T> QueryRequest<'a, T>
+where T: Serialize
+{
+    pub fn build(client: &'a reqwest::Client, query: T) -> QueryRequest<'a, T>
+    {
+        QueryRequest { client, query }
+    }
+
+}
+
+impl<'a, T> HttpRequest for QueryRequest<'a, T>
 where
     T: Serialize,
 {
-    pub fn build(client: &'a reqwest::Client, query: T) -> Request<'a, T>
-    {
-        Request { client, query }
-    }
-
     async fn get_serialized_response(
         &self,
         url: &str
@@ -85,24 +146,12 @@ where
             .send()
             .await
     }
-
-    pub async fn retrieve_deserialized<U>(
-        &self,
-        url: &str
-    ) -> reqwest::Result<U>
-    where
-        U: DeserializeOwned
-    {
-        self.get_serialized_response(url).await?
-            .json::<U>()
-            .await
-    }
 }
 
 pub struct Downloader<'a>
 {
     client: &'a reqwest::Client,
-    output_directory: path::PathBuf,
+    output_directory: PathBuf,
 }
 impl<'a> Downloader<'a>
 {
@@ -120,18 +169,24 @@ impl<'a> Downloader<'a>
             .await
     }
 
-    fn write_to_file(&self, bytes: &[u8]) -> io::Result<()>
+    fn write_to_file(&self, bytes: &[u8], filename: &str) -> Result<(), DownloadError>
     {
-        fs::File::create(&self.output_directory)?.write_all(bytes)?;
-        println!("{}", Self::msg("Download successful"));
-        Ok(())
+        match try_path_join(&self.output_directory, filename)
+        {
+            Some(p) => {
+                fs::File::create(&p)?.write_all(bytes)?;
+                println!("{}", Self::msg("Download successful"));
+                Ok(())
+            }
+            None => Err(DownloadError::Unknown(String::from("Filename unsafe")))
+        }
     }
 
-    pub async fn download(&self, url: &str) -> Result<(), DownloadError>
+    pub async fn download(&self, url: &str, filename: &str) -> Result<(), DownloadError>
     {
         let bytes = self.retrieve_bytes(url).await?;
         
-        self.write_to_file(&bytes)?;
+        self.write_to_file(&bytes, filename)?;
 
         Ok(())
     }
@@ -139,6 +194,7 @@ impl<'a> Downloader<'a>
     pub async fn verify_and_download<F>(
         &self,
         url: &str,
+        filename: &str,
         verify: F
     ) -> Result<(), DownloadError>
     where
@@ -148,10 +204,17 @@ impl<'a> Downloader<'a>
 
         if verify(&bytes)
         {
+            self.write_to_file(&bytes, filename)?;
             Ok(())
         }
         else {
             Err(BadVerify(String::from("Download could not be verified")))
         }
     }
+}
+
+fn try_path_join(base: &PathBuf, new_comp: &str) -> Option<PathBuf>
+{
+    let comp = Path::new(new_comp);
+    if comp.is_relative() { Some(base.join(comp)) } else { None }
 }

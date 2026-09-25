@@ -1,4 +1,4 @@
-use crate::http_handler::Request;
+use crate::http_handler::QueryRequest;
 
 use super::*;
 use modrinth::*;
@@ -8,7 +8,7 @@ async fn test_modrinth_item_build()
 {
     let client = create_client().expect("Client should be created");
     let query = VersionQuery::build_query(&String::from("26.3"), &String::from("fabric"));
-    let version_requester = Request::<VersionQuery>::build(&client, query);
+    let version_requester = QueryRequest::<VersionQuery>::build(&client, query);
     static PROJECT_ID: &str = "P7dR8mSH";
 
     let item = ModrinthItem::build_from_id(version_requester, PROJECT_ID).await.expect("should not fail");

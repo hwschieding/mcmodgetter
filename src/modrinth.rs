@@ -11,7 +11,7 @@ use sha2::{Sha512, Digest};
 
 use crate::http_handler::DownloadError::BadRequest;
 use crate::http_handler::Downloader;
-use crate::{arguments, http_handler, items};
+use crate::{arguments, http_handler::{self, HttpRequest}, items};
 
 static MODRINTH_URL: &str = "https://api.modrinth.com/v2";
 static MODRINTH_SIG: &str = "MODRINTH";
@@ -130,7 +130,7 @@ impl ModrinthItem
     }
     
     pub async fn build_from_id<'a>(
-        version_requester: http_handler::Request<'a, VersionQuery>,
+        version_requester: http_handler::QueryRequest<'a, VersionQuery>,
         project_id: &str
     ) -> Result<Self, ModrinthItemError>
     {
@@ -149,12 +149,6 @@ impl ModrinthItem
 
         Self::build_from_id_and_version(project_id, selected_version)
     }
-
-}
-
-#[derive(Serialize)]
-struct ModrinthVersionQuery
-{
 
 }
 
@@ -211,6 +205,7 @@ impl ModrinthFile {
     {
         downloader.verify_and_download(
             &self.url,
+            &self.filename,
             |b| self.hashes.check512(&Sha512::digest(b))
         ).await
     }

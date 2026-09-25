@@ -1,6 +1,5 @@
-use std::{error, fmt, fs, intrinsics::write_bytes, io::Write, path::PathBuf};
+use std::{error, fmt, fs, io::{self, Write}, path};
 
-use futures::{future::ok, io};
 use reqwest::Response;
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -61,7 +60,7 @@ impl From<std::io::Error> for DownloadError {
     }
 }
 
-struct Request<'a, T>
+pub struct Request<'a, T>
 {
     client: &'a reqwest::Client,
     query: T
@@ -76,7 +75,10 @@ where
         Request { client, query }
     }
 
-    async fn get_serialized_response(&self, url: &str) -> reqwest::Result<Response>
+    async fn get_serialized_response(
+        &self,
+        url: &str
+    ) -> reqwest::Result<Response>
     {
         self.client.get(url)
             .query(&self.query)
@@ -84,7 +86,10 @@ where
             .await
     }
 
-    pub async fn retrieve_deserialized<U>(&self, url: &str) -> reqwest::Result<U>
+    pub async fn retrieve_deserialized<U>(
+        &self,
+        url: &str
+    ) -> reqwest::Result<U>
     where
         U: DeserializeOwned
     {
@@ -96,7 +101,8 @@ where
 
 pub struct Downloader<'a>
 {
-    client: &'a reqwest::Client
+    client: &'a reqwest::Client,
+    output_directory: path::PathBuf,
 }
 impl<'a> Downloader<'a>
 {
@@ -114,23 +120,27 @@ impl<'a> Downloader<'a>
             .await
     }
 
-    fn write_to_file(bytes: &[u8], out_dir: &PathBuf) -> io::Result<()>
+    fn write_to_file(&self, bytes: &[u8]) -> io::Result<()>
     {
-        fs::File::create(out_dir)?.write_all(bytes)?;
+        fs::File::create(&self.output_directory)?.write_all(bytes)?;
         println!("{}", Self::msg("Download successful"));
         Ok(())
     }
 
-    pub async fn download(&self, url: &str, out_dir: &PathBuf) -> Result<(), DownloadError>
+    pub async fn download(&self, url: &str) -> Result<(), DownloadError>
     {
         let bytes = self.retrieve_bytes(url).await?;
         
-        Self::write_to_file(&bytes, out_dir)?;
+        self.write_to_file(&bytes)?;
 
         Ok(())
     }
 
-    pub async fn verify_and_download<F>(&self, url: &str, out_dir: &PathBuf, verify: F) -> Result<(), DownloadError>
+    pub async fn verify_and_download<F>(
+        &self,
+        url: &str,
+        verify: F
+    ) -> Result<(), DownloadError>
     where
         F: Fn(&[u8]) -> bool
     {

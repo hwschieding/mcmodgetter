@@ -1,12 +1,20 @@
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::{self, Path};
+use std::path::{self, Path, PathBuf};
 
-use crate::modrinth::ModrinthItem;
-use crate::{items, modrinth};
+use csv;
+use serde::{Deserialize, Serialize};
+
+use crate::modrinth;
 
 static TRACKER_FILENAME: &'static str = ".tracker.mcmg";
+static TRACKER_SIG: &'static str = "TRACKER";
+
+fn print_tracker_error(msg: String)
+{
+    println!("[{}/ERROR] {}", TRACKER_SIG, msg);
+}
 
 pub enum IdType<'a> {
     Modrinth(&'a str),
@@ -107,46 +115,24 @@ pub fn parse_input_line<'a>(line: &'a String) -> Option<IdType<'a>> {
 pub struct TrackerEntry
 {
     version_id: String,
-    filename: String,
+    filename: PathBuf,
 }
 impl TrackerEntry
 {
-    pub fn new_entry(v_id: String, filename: String) -> Self
+    pub fn new_entry(v_id: String, filename: PathBuf) -> Self
     {
         TrackerEntry { version_id: (v_id), filename }
     }
-    fn from_csv(csv: &String) -> Option<(String, Self)>
-    {
-        let mut values = csv.split(',');
-        let key = match values.next()
-        {
-            Some(v) => String::from(v),
-            None => return None
-        };
-        let v_id = match values.next()
-        {
-            Some(v) => String::from(v),
-            None => return None
-        };
-        let filename = match values.next()
-        {
-            Some(v) => String::from(v),
-            None => return None
-        };
-
-        Some((key, Self::new_entry(v_id, filename)))
-    }
-
 }
 
 pub struct TrackerFile
 {
     entries: HashMap<String, TrackerEntry>,
-    filepath: path::PathBuf,
+    filepath: PathBuf
 }
 impl TrackerFile
 {
-    pub fn build(folder: &Path) -> io::Result<Self>
+    pub fn build(folder: &Path) -> csv::Result<Self>
     {
         let filepath = folder.join(TRACKER_FILENAME);
         if filepath.exists()
@@ -159,7 +145,7 @@ impl TrackerFile
         }
     }
 
-    pub fn entry(&self, key: &str) -> Option<&TrackerEntry>
+    fn entry(&self, key: &str) -> Option<&TrackerEntry>
     {
         self.entries.get(key)
     }
@@ -169,7 +155,7 @@ impl TrackerFile
         self.entries.len()
     }
 
-    pub fn matches_entry(&self, item: &ModrinthItem) -> bool
+    pub fn matches_entry(&self, item: &modrinth::ModrinthItem) -> bool
     {
         match self.entry(item.id())
         {
@@ -178,27 +164,41 @@ impl TrackerFile
         }
     }
 
-    pub fn build_from_file(filepath: path::PathBuf) -> io::Result<Self>
+    fn delete_entry_file(&mut self, key: &str) -> ()
+    {
+        if let Some(ent) = self.entry(key)
+            && let Err(err) = fs::remove_file(&ent.filename)
+        {
+            print_tracker_error(format!("Failed to remove old file: {}", err));
+        }
+    }
+
+    fn build_from_file(filepath: path::PathBuf) -> csv::Result<Self>
     {
         let mut entries = HashMap::<String, TrackerEntry>::new();
 
-        let f_in = File::open(&filepath)?;
-        let reader = BufReader::new(f_in);
-        
-        for line in reader.lines()
+        let mut reader = csv::ReaderBuilder::new()
+            .from_path(&filepath)?
+        ;
+
+        for result in reader.deserialize()
         {
-            if let Ok(l) = line && let Some(entry) = TrackerEntry::from_csv(&l)
+            let record: CsvRecord = match result
             {
-                entries.insert(entry.0, entry.1);
-            }
+                Ok(r) => r,
+                Err(e) => {
+                    print_tracker_error(format!("Couldn't retrieve record: {}", e));
+                    continue;
+                }
+            };
+
+            entries.insert(
+                record.id,
+                TrackerEntry::new_entry(record.vid, record.filename)
+            );
         }
 
         Ok(TrackerFile { filepath, entries })
-    }
-
-    pub fn update_entry(&mut self, id: &String, entry: TrackerEntry) -> ()
-    {
-        self.entries.insert(id.to_string(), entry);
     }
 
     pub fn update(&mut self, modlist: Vec<modrinth::ModrinthItem>) -> ()
@@ -207,10 +207,21 @@ impl TrackerFile
         {
             if m.downloaded()
             {
-                self.update_entry(m.id(), TrackerEntry::new_entry(
+                self.delete_entry_file(m.id());
+
+                // let filename = directory.join(m.filename());
+
+                self.entries.insert(m.id().to_string(), TrackerEntry::new_entry(
                     m.version_id().to_string(),
-                    m.filename().to_string())
-                );
+                    match self.filepath.parent()
+                    {
+                        Some(p) => p,
+                        None => {
+                            print_tracker_error(String::from("Dunno how this one happened."));
+                            return ()
+                        }   
+                    }.join(m.filename())
+                ));
             }
         }
     }
@@ -221,12 +232,52 @@ impl TrackerFile
 
         for (key, val) in &self.entries
         {
-            if let Err(err) = writeln!(f_out, "{},{},{}", key, val.version_id, val.filename)
+            if let Err(err) = writeln!(f_out, "{},{},{}", key, val.version_id, val.filename.display())
             {
-                println!("[TRACKER/ERROR] Failed to save entry for '{}': {}", key, err)
+                print_tracker_error(format!("Failed to save entry for '{}': {}", key, err));
             };
         }
 
         Ok(())
     }
+
+    pub fn write_csv(&self) -> ()
+    {
+        let mut writer = match csv::WriterBuilder::new()
+            .from_path(&self.filepath)
+        {
+            Ok(w) => w,
+            Err(e) => {
+                print_tracker_error(format!("Couldn't create tracker file: {}", e));
+                return ()
+            }
+        };
+
+        for (key, val) in &self.entries
+        {
+            let record = CsvRefRecord{ id: key, vid: &val.version_id, filename: &val.filename };
+            if let Err(e) = writer.serialize(record)
+            {
+                print_tracker_error(format!("Entry for '{}' failed to write: {}", key, e));
+            }
+        };
+        
+        ()
+    }
+}
+
+#[derive(Serialize)]
+struct CsvRefRecord<'a>
+{
+    id: &'a str,
+    vid: &'a str,
+    filename: &'a Path,
+}
+
+#[derive(Deserialize)]
+struct CsvRecord
+{
+    id: String,
+    vid: String,
+    filename: PathBuf,
 }

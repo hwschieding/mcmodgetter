@@ -1,14 +1,13 @@
-use std::{fmt, error, io};
+use std::{fmt, error};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
 use sha2::digest::Output;
-use sha2::digest::typenum::Mod;
 use sha2::{Sha512, Digest};
 
-use crate::file_parse::{self, TrackerEntry, TrackerFile};
+use crate::file_parse::TrackerFile;
 use crate::http_handler::{Downloader};
 use crate::items::Item;
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
@@ -113,7 +112,7 @@ impl ModrinthItem
     {
         self.downloaded
     }
-    pub fn filename(&self) -> &String
+    pub fn filename(&self) -> &PathBuf
     {
         self.downloadable.filename()
     }
@@ -277,7 +276,7 @@ impl Clone for ModrinthVersion
 #[derive(Deserialize)]
 pub struct ModrinthFile {
     url: String,
-    filename: String,
+    filename: PathBuf,
     primary: bool,
     hashes: ModrinthFileHash,
 }
@@ -285,7 +284,7 @@ impl ModrinthFile {
     pub fn url(&self) -> &String {
         &self.url
     }
-    pub fn filename(&self) -> &String {
+    pub fn filename(&self) -> &PathBuf {
         &self.filename
     }
     pub fn primary(&self) -> &bool {
@@ -593,7 +592,7 @@ pub async fn download_from_id_list<'a>(
     client: & reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
-) -> io::Result<()>
+) -> Result<(), Box<dyn error::Error>>
 {
     let query = VersionQuery::build_query(
         conf.mcvs(),
@@ -618,7 +617,7 @@ pub async fn download_from_id_list<'a>(
     download_mods(&downloader, &mut items).await;
 
     tracker.update(items);
-    tracker.write_to_tracker_file()?;
+    tracker.write_csv();
     Ok(())
 }
 

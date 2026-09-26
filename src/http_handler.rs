@@ -174,20 +174,20 @@ impl<'a> Downloader<'a>
             .await
     }
 
-    fn write_to_file(&self, bytes: &[u8], filename: &str) -> Result<(), DownloadError>
+    fn write_to_file(&self, bytes: &[u8], filename: &Path) -> Result<(), DownloadError>
     {
         match try_path_join(&self.output_directory, filename)
         {
             Some(p) => {
                 fs::File::create(&p)?.write_all(bytes)?;
-                println!("{} '{}'", Self::msg("Successfully downloaded"), filename);
+                println!("{} '{}'", Self::msg("Successfully downloaded"), filename.display());
                 Ok(())
             }
-            None => Err(DownloadError::Unknown(format!("Filename '{}' unsafe", filename)))
+            None => Err(DownloadError::Unknown(format!("Filename '{}' unsafe", filename.display())))
         }
     }
 
-    pub async fn download(&self, url: &str, filename: &str) -> Result<(), DownloadError>
+    pub async fn download(&self, url: &str, filename: &Path) -> Result<(), DownloadError>
     {
         let bytes = self.retrieve_bytes(url).await?;
         
@@ -199,7 +199,7 @@ impl<'a> Downloader<'a>
     pub async fn verify_and_download<F>(
         &self,
         url: &str,
-        filename: &str,
+        filename: &Path,
         verify: F
     ) -> Result<(), DownloadError>
     where
@@ -218,8 +218,8 @@ impl<'a> Downloader<'a>
     }
 }
 
-fn try_path_join(base: &PathBuf, new_comp: &str) -> Option<PathBuf>
+fn try_path_join(base: &PathBuf, new_comp: &Path) -> Option<PathBuf>
 {
-    let comp = Path::new(new_comp);
-    if comp.is_relative() { Some(base.join(comp)) } else { None }
+    
+    if new_comp.is_relative() { Some(base.join(new_comp)) } else { None }
 }

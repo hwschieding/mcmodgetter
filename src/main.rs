@@ -51,7 +51,7 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
             read_mods(&conf, &client).await?;
         }
         AppMode::ClearMods => {
-            clear_mods(&out_dir)?;
+            clear_mods(&out_dir).await?;
         },
         AppMode::Help => {
             help();

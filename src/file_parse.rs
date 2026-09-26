@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader};
 use std::path::{self, Path, PathBuf};
 
+use futures::future;
 use csv;
 use serde::{Deserialize, Serialize};
 
@@ -228,19 +229,25 @@ impl TrackerFile
         }
     }
 
-    pub fn write_to_tracker_file(&self) -> io::Result<()>
+    pub  async fn wipe_all_entries(&mut self) -> ()
     {
-        let mut f_out = File::create(&self.filepath)?;
+        let mut delete_futures = Vec::new();
 
-        for (key, val) in &self.entries
+        for (_, value) in &self.entries
         {
-            if let Err(err) = writeln!(f_out, "{},{},{}", key, val.version_id, val.filename.display())
-            {
-                print_tracker_error(format!("Failed to save entry for '{}': {}", key, err));
-            };
+            delete_futures.push(try_delete_file(&value.filename))
         }
 
-        Ok(())
+        for err in future::join_all(delete_futures)
+            .await
+            .into_iter()
+            .filter_map(Result::err)
+            .collect::<Vec<io::Error>>()
+        {
+            println!("{err}");
+        }
+
+        self.entries = HashMap::new();
     }
 
     pub fn write_csv(&self) -> ()
@@ -289,4 +296,9 @@ struct CsvRecord
     vid: String,
     i_id: String,
     filename: PathBuf,
+}
+
+async fn try_delete_file(filename: &Path) -> io::Result<()>
+{
+    fs::remove_file(filename)
 }

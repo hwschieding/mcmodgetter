@@ -95,7 +95,7 @@ pub async fn single_id<'a>(
     Ok(())
 }
 
-pub fn clear_mods(
+pub async fn clear_mods(
     out_dir: &PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
@@ -105,13 +105,13 @@ pub fn clear_mods(
         println!("clearmods can only be performed on existing directories.");
         return Ok(())
     }
-    println!("Delete all '.jar' files in directory {}? (y/n)",
+    println!("Delete all tracked '.jar' files in directory {}? (y/n)",
         &out_dir.display()
     );
     let mut user_ans = String::new();
     io::stdin().read_line(&mut user_ans)?;
     if user_ans.trim().to_lowercase() == "y" {
-        clear_dir(&out_dir)?;
+        clear_dir(&out_dir).await?;
     }
     Ok(())
 }
@@ -156,66 +156,13 @@ pub fn help() -> () {
     )
 }
 
-#[derive(Debug)]
-enum RemovalError {
-    BadExtensionForFile(String),
-    FileError(io::Error)
-}
-
-impl fmt::Display for RemovalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BadExtensionForFile(file_name) => write!(f, "[REMOVAL/ERROR] Unexpected extension for '{file_name}'"),
-            Self::FileError(err) => write!(f, "[REMOVAL/ERROR] Could not remove file: {err}")
-        }
-    }
-}
-
-impl error::Error for RemovalError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            Self::FileError(e) => Some(e),
-            _ => None
-        }
-    }
-}
-
-impl From<io::Error> for RemovalError {
-    fn from(value: io::Error) -> Self {
-        Self::FileError(value)
-    }    
-}
-
-fn remove_jar(entry: &DirEntry) -> Result<(), RemovalError> {
-    let path = entry.path();
-    if let Some(ext) = path.extension() && ext == "jar"{
-        fs::remove_file(&path)?;
-        println!("[REMOVAL] Removed entry {}", &path.display());
-        Ok(())
-    } else {
-        Err(RemovalError::BadExtensionForFile(path.display().to_string()))
-    }
-}
-
-fn clear_dir(out_dir: &PathBuf) -> io::Result<()>{
+async fn clear_dir(out_dir: &PathBuf) -> Result<(), Box<dyn error::Error>>{
     println!("[REMOVAL] Clearing folder {}...", out_dir.display());
-    let entries = fs::read_dir(out_dir)?
-    .into_iter()
-    .filter_map(|ent_res| {
-        match ent_res {
-            Ok(de) => Some(de),
-            Err(err) => {
-                println!("[REMOVAL/ERROR] Could not resolve dir entry: {err}");
-                None
-            }
-        }
-    })
-    .collect::<Vec<DirEntry>>();
 
-    for entry in entries {
-        if let Err(e) = remove_jar(&entry) {
-            println!("{e}");
-        }
-    }
+    let mut tracker = file_parse::TrackerFile::build(out_dir)?;
+
+    tracker.wipe_all_entries().await;
+    tracker.write_csv();
+
     Ok(())
 }

@@ -1,5 +1,4 @@
-use std::fs::{self, DirEntry};
-use std::{fmt, io, error};
+use std::{io, error, fs};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -32,7 +31,7 @@ pub async fn read_mods<'a>(
     if let Some(filename) = conf.options().get_file() {
         let ids = get_ids(filename)?;
         if let Some(modrinth_ids) = ids.modrinth() {
-            // modrinth::list_projects(client, modrinth_ids).await;
+            modrinth::list_projects(client, modrinth_ids).await;
         }
     } else {
         println!("Couldn't get filename");

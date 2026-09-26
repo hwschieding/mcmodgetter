@@ -653,6 +653,57 @@ pub async fn verify_ids_from_list<'a>(
     Ok(())
 }
 
+#[derive(Deserialize)]
+struct ModrinthProject
+{
+    id: String,
+    title: String,
+    description: String,
+}
+impl ModrinthProject
+{
+    async fn build<'a>(
+        requester: &http_handler::BasicRequest<'a>,
+        id: &str,
+    ) -> reqwest::Result<Self>
+    {
+        let url = format!("{}/project/{}", MODRINTH_URL, id);
+        requester.retrieve_deserialized::<ModrinthProject>(&url).await
+    }
+
+    fn list_info(&self)
+    {
+        println!("\n{} -> {}\n{}",
+            self.id,
+            self.title,
+            self.description
+        );
+    }
+}
+pub async fn list_projects(
+    client: &reqwest::Client,
+    id_list: &Vec<String>,
+) -> () {
+    let pid_requester = http_handler::BasicRequest::build(client);
+
+    let items: Vec<_> = id_list
+        .iter()
+        .map(|id| {
+            ModrinthProject::build(&pid_requester, id)
+        })
+        .collect()
+    ;
+    
+    for item_result in future::join_all(items).await
+    {
+        match item_result {
+            Ok(item) => item.list_info(),
+            Err(err) => println!("Couldn't retrieve ID: {err}")
+        }
+    };
+
+    ()
+}
 
 // #[derive(Debug)]
 // pub enum ModError {
@@ -1186,58 +1237,6 @@ pub async fn verify_ids_from_list<'a>(
 //     ()
 // }
 
-// async fn download_from_id_list<'a>(
-//     conf: &arguments::Config<'a>,
-//     client: & reqwest::Client,
-//     ids: &Vec<String>,
-//     out_dir: &PathBuf
-// ) -> ()
-// {
-//     let query = VersionQuery::build_query(
-//         conf.mcvs(),
-//         &conf.loader_as_string()
-//     );
-//     let mut mods: Vec<Mod> = collect_mods(client, ids, &query).await;
-//     if conf.options().get_skip_deps() {
-//         println!("[MODRINTH] Skipping dependencies...");
-//     } else {
-//         println!("[MODRINTH] Getting dependencies...");
-//         resolve_dependencies(client, &query, &mut mods).await;
-//     }
-//     download_mods(client, &mods, out_dir).await;
-//     ()
-// }
-
-// async fn verify_ids_from_list<'a>(
-//     conf: &arguments::Config<'a>,
-//     client: & reqwest::Client,
-//     ids: &Vec<String>,
-//     out_dir: &PathBuf
-// ) -> () {
-//     println!(
-//         "Checking provided IDs against folder '{}'; dependencies NOT included...",
-//         out_dir.display()
-//     );
-//     let query = VersionQuery::build_query(
-//         &conf.mcvs(),
-//         &conf.loader_as_string()
-//     );
-//     let mods: Vec<Mod> = collect_mods(client, ids, &query).await;
-//     let mut bad_results: u32 = 0;
-//     for m in &mods {
-//         let v_res = m.verify(out_dir);
-//         if !v_res.is_ok() {
-//             bad_results += 1;
-//         };
-//         v_res.print();
-//     };
-//     if bad_results > 0 {
-//         println!("\n{} out of {} mods were unable to be verified", bad_results, mods.len());
-//     } else {
-//         println!("All mods verified successfully");
-//     };
-// }
-
 // async fn download_from_id<'a>(
 //     conf: &arguments::Config<'a>,
 //     client: & reqwest::Client,
@@ -1281,45 +1280,6 @@ pub async fn verify_ids_from_list<'a>(
 //         &query
 //     ).await?;
 //     m.verify(out_dir).print();
-//     Ok(())
-// }
-
-// pub async fn list_projects(
-//     client: &reqwest::Client,
-//     id_list: &Vec<String>,
-// ) -> () {
-//     let projs = get_projects_from_list(client, id_list).await;
-//     for proj_res in projs {
-//         if let Ok(p) = proj_res {
-//             let proj_id = p.get_id();
-//             let proj_title = p.get_title();
-//             println!("ID '{proj_id}' -> '{proj_title}'");
-//         }
-//     }
-//     ()
-// }
-
-// pub async fn handle_list_input<'a>(
-//     conf: &arguments::Config<'a>,
-//     client: &reqwest::Client,
-//     id_list: &Vec<String>,
-//     out_dir: &PathBuf
-// ) -> Result<(), Box<dyn error::Error>> {
-//     if conf.options().get_verify() {
-//         verify_ids_from_list(
-//             conf,
-//             client,
-//             id_list,
-//             out_dir
-//         ).await;
-//     } else {
-//         download_from_id_list(
-//             conf,
-//             client,
-//             id_list,
-//             out_dir
-//         ).await;
-//     };
 //     Ok(())
 // }
 

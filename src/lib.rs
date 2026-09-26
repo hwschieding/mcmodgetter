@@ -51,7 +51,7 @@ pub async fn id_from_file<'a>(
 
         if let Some(modrinth_ids) = ids.modrinth() {
             println!("Handling modrinth ids...");
-            modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await;
+            modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await?;
             // modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
         };
         // if let Some(curse_ids) = ids.curseforge() {

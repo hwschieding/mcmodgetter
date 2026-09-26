@@ -32,7 +32,7 @@ impl VerificationResult {
 
 pub trait Item {
     fn download<'a>(
-        &self,
+        &mut self,
         downloader: &http_handler::Downloader<'a>,
-    ) -> impl std::future::Future<Output = Result<(), http_handler::DownloadError>> + Send;
+    ) -> impl std::future::Future<Output = ()> + Send;
 }

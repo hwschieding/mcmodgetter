@@ -1,12 +1,14 @@
-use std::{fmt, error};
+use std::{fmt, error, io};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
 use sha2::digest::Output;
+use sha2::digest::typenum::Mod;
 use sha2::{Sha512, Digest};
 
+use crate::file_parse::{self, TrackerEntry, TrackerFile};
 use crate::http_handler::{Downloader};
 use crate::items::Item;
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
@@ -76,16 +78,21 @@ pub struct ModrinthItem
     version_title: String,
     version_id: String,
     downloadable: ModrinthFile,
-    dependencies: Vec<RequiredDependency>
+    dependencies: Vec<RequiredDependency>,
+    downloaded: bool,
 }
 impl items::Item for ModrinthItem
 {
     async fn download<'a>(
-        &self,
+        &mut self,
         downloader: &Downloader<'a>,
-    ) -> Result<(), http_handler::DownloadError>
+    ) -> ()
     {
-        self.downloadable.download(downloader).await
+        match self.downloadable.download(downloader).await
+        {
+            Err(err) => println!("{}", err),
+            Ok(_) => self.downloaded = true,
+        }
     }
 }
 impl ModrinthItem
@@ -101,6 +108,14 @@ impl ModrinthItem
     pub fn version_id(&self) -> &String
     {
         &self.version_id
+    }
+    pub fn downloaded(&self) -> bool
+    {
+        self.downloaded
+    }
+    pub fn filename(&self) -> &String
+    {
+        self.downloadable.filename()
     }
 
     fn build_from_version(
@@ -123,7 +138,8 @@ impl ModrinthItem
             version_title: version.name,
             version_id: version.id,
             downloadable,
-            dependencies: version.dependencies
+            dependencies: version.dependencies,
+            downloaded: false,
         })
     }
 
@@ -149,7 +165,8 @@ impl ModrinthItem
             version_title: version.name,
             version_id: version.id,
             downloadable,
-            dependencies: version.dependencies
+            dependencies: version.dependencies,
+            downloaded: false,
         })
     }
     
@@ -510,6 +527,28 @@ impl<'a> DependencyHandler<'a>
     }
 }
 
+fn filter_mods_by_tracker(
+    mods: Vec<ModrinthItem>,
+    tracker: &TrackerFile
+) -> Vec<ModrinthItem>
+{
+    let res: Vec<ModrinthItem> = mods
+        .into_iter()
+        .filter(|item| !tracker.matches_entry(item))
+        .collect()
+    ;
+
+    println!("\n{} items be updated out of {}\n", res.len(), tracker.entry_count());
+
+    // modrinth_msg(&format!(
+    //     "\n{} items will be updated out of {}\n",
+    //     res.len(),
+    //     tracker.entry_count()
+    // ));
+
+    res
+}
+
 async fn collect_mods<'a>(
     requester: &http_handler::QueryRequest<'a, VersionQuery>,
     ids: &Vec<String>,
@@ -535,7 +574,7 @@ async fn collect_mods<'a>(
 
 async fn download_mods<'a>(
     downloader: &http_handler::Downloader<'a>,
-    mods: &Vec<ModrinthItem>,
+    mods: &mut Vec<ModrinthItem>,
 ) -> ()
 {
     let mut download_futures = Vec::new();
@@ -545,14 +584,7 @@ async fn download_mods<'a>(
         download_futures.push(m.download(downloader));
     }
 
-    for e in future::join_all(download_futures)
-        .await
-        .into_iter()
-        .filter_map(Result::err)
-        .collect::<Vec<http_handler::DownloadError>>()
-    {
-        println!("{e}");
-    };
+    future::join_all(download_futures).await;
     ()
 }
 
@@ -561,7 +593,7 @@ pub async fn download_from_id_list<'a>(
     client: & reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
-) -> ()
+) -> io::Result<()>
 {
     let query = VersionQuery::build_query(
         conf.mcvs(),
@@ -578,9 +610,16 @@ pub async fn download_from_id_list<'a>(
     let mut dep_handler = DependencyHandler::build(&mut items);
     dep_handler.acquire_all_dependencies(&dep_requester).await;
 
+    let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
+    items = filter_mods_by_tracker(items, &tracker);
+
     // Download
     let downloader = http_handler::Downloader::build(client, out_dir);
-    download_mods(&downloader, &items).await;
+    download_mods(&downloader, &mut items).await;
+
+    tracker.update(items);
+    tracker.write_to_tracker_file()?;
+    Ok(())
 }
 
 // #[derive(Debug)]

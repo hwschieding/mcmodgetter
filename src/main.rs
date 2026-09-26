@@ -2,7 +2,7 @@ use std::{env, process};
 use std::error::Error;
 
 use mcmodgetter::{
-    read_mods, clear_mods, create_client, create_out_dir, get_out_dir, help, id_from_file, single_id
+    clear_mods, create_client, create_out_dir, get_out_dir, help, id_from_file, read_mods, single_id, verify
 };
 use mcmodgetter::arguments::{Config, AppMode};
 
@@ -43,6 +43,10 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
                 &out_dir
             ).await?;
         },
+        AppMode::CheckMods => {
+            create_out_dir(&out_dir)?;
+            verify(&conf, &client, out_dir).await?;
+        }
         AppMode::ReadMods => {
             read_mods(&conf, &client).await?;
         }

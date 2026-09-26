@@ -3,6 +3,7 @@ use std::path::{Path};
 pub enum AppMode {
     DownloadId,
     DownloadFile,
+    CheckMods,
     ClearMods,
     ReadMods,
     Help
@@ -84,7 +85,7 @@ impl<'a> Config<'a> {
                 "download" => is_download = true,
                 "clearmods" => mode = Ok(AppMode::ClearMods),
                 "readmods" => mode = Ok(AppMode::ReadMods),
-                "checkmods" => { ops.set_verify(true); },
+                "checkmods" => mode = Ok(AppMode::CheckMods),
                 "-id" => ops.set_id(get_id(args_iter.next())?),
                 "-file" => ops.set_file(get_file(args_iter.next())?),
                 "-mcv" => mcvs = Ok(get_mcvs(args_iter.next())?),

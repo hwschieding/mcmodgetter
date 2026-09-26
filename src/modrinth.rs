@@ -17,9 +17,9 @@ static MODRINTH_SIG: &str = "MODRINTH";
 
 static MODRINTH_ITEM_ID: &'static str = "MR";
 
-fn modrinth_msg(s: &str) -> String
+fn modrinth_msg(s: String) -> ()
 {
-    format!("[{}] {}", MODRINTH_SIG, s)
+    println!("[{}] {}", MODRINTH_SIG, s)
 }
 
 #[derive(Debug)]
@@ -237,7 +237,7 @@ impl ModrinthItem
             match Self::try_dep(requester, dep).await
             {
                 Some(m) => { res.push(m); },
-                None => { modrinth_msg(&format!("Couldn't acquire dependency for id '{}'", self.id)); }
+                None => { modrinth_msg(format!("Couldn't acquire dependency for id '{}'", self.id)); }
             }
         }
         
@@ -536,19 +536,20 @@ fn filter_mods_by_tracker(
     tracker: &TrackerFile
 ) -> Vec<ModrinthItem>
 {
+    let start_len = mods.len();
+
     let res: Vec<ModrinthItem> = mods
         .into_iter()
         .filter(|item| !tracker.matches_entry(item))
         .collect()
     ;
 
-    println!("\n{} items be updated out of {}\n", res.len(), tracker.entry_count());
+    let new_len = res.len();
 
-    // modrinth_msg(&format!(
-    //     "\n{} items will be updated out of {}\n",
-    //     res.len(),
-    //     tracker.entry_count()
-    // ));
+    println!("\n{} mods are available for download\n{} are already present\n",
+        new_len,
+        start_len - new_len
+    );
 
     res
 }
@@ -592,12 +593,11 @@ async fn download_mods<'a>(
     ()
 }
 
-pub async fn download_from_id_list<'a>(
+pub async fn build_modlist_from_ids<'a>(
     conf: &arguments::Config<'a>,
     client: & reqwest::Client,
     ids: &Vec<String>,
-    out_dir: PathBuf
-) -> Result<(), Box<dyn error::Error>>
+) -> Vec<ModrinthItem>
 {
     let query = VersionQuery::build_query(
         conf.mcvs(),
@@ -614,6 +614,18 @@ pub async fn download_from_id_list<'a>(
     let mut dep_handler = DependencyHandler::build(&mut items);
     dep_handler.acquire_all_dependencies(&dep_requester).await;
 
+    items
+}
+
+pub async fn download_from_id_list<'a>(
+    conf: &arguments::Config<'a>,
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    let mut items = build_modlist_from_ids(conf, client, ids).await;
+
     let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
     items = filter_mods_by_tracker(items, &tracker);
 
@@ -625,6 +637,22 @@ pub async fn download_from_id_list<'a>(
     tracker.write_csv();
     Ok(())
 }
+
+pub async fn verify_ids_from_list<'a>(
+    conf: &arguments::Config<'a>,
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>> {
+    let items = build_modlist_from_ids(conf, client, ids).await;
+
+    let tracker: TrackerFile = TrackerFile::build(&out_dir)?;
+
+    filter_mods_by_tracker(items, &tracker);
+
+    Ok(())
+}
+
 
 // #[derive(Debug)]
 // pub enum ModError {

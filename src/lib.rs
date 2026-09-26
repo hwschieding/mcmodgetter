@@ -40,33 +40,46 @@ pub async fn read_mods<'a>(
     Ok(())
 }
 
+pub async fn verify<'a>(
+    conf: &arguments::Config<'a>,
+    client: &reqwest::Client,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    if let Some(file) = conf.options().get_file()
+    {
+        let ids = get_ids(file)?;
+        if let Some(modrinth_ids) = ids.modrinth()
+        {
+            modrinth::verify_ids_from_list(conf, client, modrinth_ids, out_dir).await?;
+        }
+
+        return Ok(())
+    }
+
+    Ok(())
+}
+
 pub async fn id_from_file<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
     out_dir: PathBuf
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<(), Box<dyn error::Error>>
 {
-    if let Some(filename) = conf.options().get_file() {
-        let ids = get_ids(filename)?;
+    let ids = match conf.options().get_file()
+    {
+        Some(filename) => get_ids(filename)?,
+        None => {
+            println!("Couldn't get filename");
+            return Ok(())
+        }
+    };
 
-        if let Some(modrinth_ids) = ids.modrinth() {
-            println!("Handling modrinth ids...");
-            modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await?;
-            // modrinth::handle_list_input(conf, client, modrinth_ids, out_dir).await?;
-        };
-        // if let Some(curse_ids) = ids.curseforge() {
-        //     for id in curse_ids {
-        //         println!("Curseforge id '{id}'");
-        //     }
-        // }
-        // if let Some(hangar_ids) = ids.hangar() {
-        //     for id in hangar_ids {
-        //         println!("Hangar id '{id}'");
-        //     }
-        // }
-    } else {
-        println!("Couldn't get filename");
-    }
+    if let Some(modrinth_ids) = ids.modrinth() {
+        println!("Handling modrinth ids...");
+        modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await?;
+    };
+    
     Ok(())
 }
 

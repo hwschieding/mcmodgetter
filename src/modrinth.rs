@@ -15,6 +15,8 @@ use crate::{arguments, http_handler::{self, HttpRequest}, items};
 static MODRINTH_URL: &str = "https://api.modrinth.com/v2";
 static MODRINTH_SIG: &str = "MODRINTH";
 
+static MODRINTH_ITEM_ID: &'static str = "MR";
+
 fn modrinth_msg(s: &str) -> String
 {
     format!("[{}] {}", MODRINTH_SIG, s)
@@ -93,28 +95,31 @@ impl items::Item for ModrinthItem
             Ok(_) => self.downloaded = true,
         }
     }
-}
-impl ModrinthItem
-{
-    pub fn id(&self) -> &String
+    fn id(&self) -> &String
     {
         &self.id
     }
-    pub fn version_title(&self) -> &String
-    {
-        &self.version_title
-    }
-    pub fn version_id(&self) -> &String
+    fn version_id(&self) -> &String
     {
         &self.version_id
     }
-    pub fn downloaded(&self) -> bool
+    fn downloaded(&self) -> bool
     {
         self.downloaded
     }
-    pub fn filename(&self) -> &PathBuf
+    fn filename(&self) -> &PathBuf
     {
         self.downloadable.filename()
+    }
+    fn item_id(&self) -> &'static str {
+        MODRINTH_ITEM_ID
+    }
+}
+impl ModrinthItem
+{
+    pub fn version_title(&self) -> &String
+    {
+        &self.version_title
     }
 
     fn build_from_version(

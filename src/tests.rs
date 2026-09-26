@@ -2,6 +2,7 @@ use crate::http_handler::QueryRequest;
 
 use super::*;
 use modrinth::*;
+use items::*;
 
 #[tokio::test]
 async fn test_modrinth_item_build()

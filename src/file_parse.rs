@@ -6,7 +6,7 @@ use std::path::{self, Path, PathBuf};
 use csv;
 use serde::{Deserialize, Serialize};
 
-use crate::modrinth;
+use crate::items::Item;
 
 static TRACKER_FILENAME: &'static str = ".tracker.mcmg";
 static TRACKER_SIG: &'static str = "TRACKER";
@@ -115,13 +115,14 @@ pub fn parse_input_line<'a>(line: &'a String) -> Option<IdType<'a>> {
 pub struct TrackerEntry
 {
     version_id: String,
+    item_id: String,
     filename: PathBuf,
 }
 impl TrackerEntry
 {
-    pub fn new_entry(v_id: String, filename: PathBuf) -> Self
+    pub fn new_entry(v_id: String, i_id: String, filename: PathBuf) -> Self
     {
-        TrackerEntry { version_id: (v_id), filename }
+        TrackerEntry { version_id: (v_id), item_id: i_id, filename }
     }
 }
 
@@ -155,7 +156,7 @@ impl TrackerFile
         self.entries.len()
     }
 
-    pub fn matches_entry(&self, item: &modrinth::ModrinthItem) -> bool
+    pub fn matches_entry(&self, item: &impl Item) -> bool
     {
         match self.entry(item.id())
         {
@@ -164,7 +165,7 @@ impl TrackerFile
         }
     }
 
-    fn delete_entry_file(&mut self, key: &str) -> ()
+    fn delete_entry_file(&self, key: &str) -> ()
     {
         if let Some(ent) = self.entry(key)
             && let Err(err) = fs::remove_file(&ent.filename)
@@ -194,25 +195,26 @@ impl TrackerFile
 
             entries.insert(
                 record.id,
-                TrackerEntry::new_entry(record.vid, record.filename)
+                TrackerEntry::new_entry(record.vid, record.i_id, record.filename)
             );
         }
 
         Ok(TrackerFile { filepath, entries })
     }
 
-    pub fn update(&mut self, modlist: Vec<modrinth::ModrinthItem>) -> ()
+    pub fn update(&mut self, modlist: Vec<impl Item>) -> ()
     {
-        for m in modlist
+        for item in modlist
         {
-            if m.downloaded()
+            if item.downloaded()
             {
-                self.delete_entry_file(m.id());
+                self.delete_entry_file(item.id());
 
                 // let filename = directory.join(m.filename());
 
-                self.entries.insert(m.id().to_string(), TrackerEntry::new_entry(
-                    m.version_id().to_string(),
+                self.entries.insert(item.id().to_string(), TrackerEntry::new_entry(
+                    item.version_id().to_string(),
+                    item.item_id().to_string(),
                     match self.filepath.parent()
                     {
                         Some(p) => p,
@@ -220,7 +222,7 @@ impl TrackerFile
                             print_tracker_error(String::from("Dunno how this one happened."));
                             return ()
                         }   
-                    }.join(m.filename())
+                    }.join(item.filename())
                 ));
             }
         }
@@ -255,7 +257,12 @@ impl TrackerFile
 
         for (key, val) in &self.entries
         {
-            let record = CsvRefRecord{ id: key, vid: &val.version_id, filename: &val.filename };
+            let record = CsvRefRecord{
+                id: key,
+                vid: &val.version_id,
+                i_id: &val.item_id,
+                filename: &val.filename
+            };
             if let Err(e) = writer.serialize(record)
             {
                 print_tracker_error(format!("Entry for '{}' failed to write: {}", key, e));
@@ -271,6 +278,7 @@ struct CsvRefRecord<'a>
 {
     id: &'a str,
     vid: &'a str,
+    i_id: &'a str,
     filename: &'a Path,
 }
 
@@ -279,5 +287,6 @@ struct CsvRecord
 {
     id: String,
     vid: String,
+    i_id: String,
     filename: PathBuf,
 }

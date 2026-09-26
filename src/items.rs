@@ -1,4 +1,4 @@
-use std::{error, fmt, io, path};
+use std::{path};
 use crate::http_handler;
 
 static VERIFICATION_SIG: &str = "VERIFY";
@@ -35,4 +35,10 @@ pub trait Item {
         &mut self,
         downloader: &http_handler::Downloader<'a>,
     ) -> impl std::future::Future<Output = ()> + Send;
+    fn id(&self) -> &String;
+    fn version_id(&self) -> &String;
+    fn filename(&self) -> &path::PathBuf;
+    fn downloaded(&self) -> bool;
+
+    fn item_id(&self) -> &'static str;
 }

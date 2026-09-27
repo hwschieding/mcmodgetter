@@ -1,6 +1,6 @@
-use std::{fmt, error};
+use std::{error, fmt, io};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
@@ -146,33 +146,6 @@ impl ModrinthItem
             downloaded: false,
         })
     }
-
-    fn build_from_id_and_version(
-        project_id: &str,
-        mut version: ModrinthVersion
-    ) -> Result<Self, ModrinthItemError>
-    {
-        
-        if version.files.len() == 0
-        {
-            return Err(ModrinthItemError::NoFile(String::from("No files for this version")));
-        }
-
-        let downloadable: ModrinthFile = match version.get_primary_file()
-        {
-            Some(idx) => version.files.swap_remove(idx),
-            None => version.files.swap_remove(0)
-        };
-
-        Ok(ModrinthItem {
-            id: project_id.to_string(),
-            version_title: version.name,
-            version_id: version.id,
-            downloadable,
-            dependencies: version.dependencies,
-            downloaded: false,
-        })
-    }
     
     pub async fn build_from_id<'a>(
         version_requester: &http_handler::QueryRequest<'a, VersionQuery>,
@@ -192,7 +165,7 @@ impl ModrinthItem
 
         let selected_version = versions.swap_remove(0);
 
-        Self::build_from_id_and_version(project_id, selected_version)
+        Self::build_from_version(selected_version)
     }
 
     async fn build_from_version_id<'a>(
@@ -514,6 +487,7 @@ impl<'a> DependencyHandler<'a>
             .enumerate()
         {
             if !self.present_ids.contains(&value.id){
+                modrinth_msg(format!("Found dependency: {}", value.version_title()));
                 self.present_ids.insert(value.id.clone());
 
                 self.dep_check_stack.push(curr_size + i);
@@ -566,12 +540,16 @@ async fn collect_mods<'a>(
     future::join_all(mods)
     .await
     .into_iter()
-    .filter_map(|m| {
-        if let Err(e) = m {
-            println!("{e}");
-            return None
-        } else {
-            return m.ok()
+    .filter_map(|m_res| {
+        match m_res {
+            Err(e) => {
+                println!("{e}");
+                None
+            }
+            Ok(m) => {
+                modrinth_msg(format!("Found '{}'", m.version_title()));
+                Some(m)
+            }
         }
     })
     .collect()
@@ -622,6 +600,15 @@ pub async fn build_modlist_from_ids<'a>(
     items
 }
 
+fn ask_user_to_download(out_dir: &Path) -> io::Result<bool>
+{
+    println!("Download all items to directory '{}'? (y/n)", out_dir.display());
+    let mut user_ans = String::new();
+    io::stdin().read_line(&mut user_ans)?;
+
+    Ok(user_ans.trim().to_lowercase() == "y")
+}
+
 pub async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a>,
     client: & reqwest::Client,
@@ -634,12 +621,22 @@ pub async fn download_from_id_list<'a>(
     let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
     items = filter_mods_by_tracker(items, &tracker);
 
+    if !ask_user_to_download(&out_dir)?
+    {
+        return Ok(())
+    }
+
+    modrinth_msg(String::from("Downloading..."));
+
     // Download
     let downloader = http_handler::Downloader::build(client, out_dir);
     download_mods(&downloader, &mut items).await;
 
     tracker.update(items);
     tracker.write_csv();
+
+    modrinth_msg(String::from("Download finished"));
+
     Ok(())
 }
 

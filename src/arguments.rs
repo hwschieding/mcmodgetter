@@ -18,7 +18,6 @@ pub enum Loader {
 pub struct Options<'a> {
     file: Option<&'a Path>,
     id: Option<String>,
-    verify: bool,
     skip_deps: bool,
 }
 
@@ -26,9 +25,8 @@ impl <'a> Options<'a> {
     pub fn new() -> Self {
         let file = None;
         let id = None;
-        let verify = false;
         let skip_deps = false;
-        Options {file, id, verify, skip_deps}
+        Options {file, id, skip_deps}
     }
     pub fn set_file(&mut self, new:Option<&'a Path>) -> () {
         self.file = new;
@@ -42,9 +40,6 @@ impl <'a> Options<'a> {
     pub fn has_file(&self) -> bool {
         self.file.is_some()
     }
-    pub fn set_verify(&mut self, new:bool) -> () {
-        self.verify = new;
-    }
     pub fn set_skip_deps(&mut self, new:bool) -> () {
         self.skip_deps = new;
     }
@@ -53,9 +48,6 @@ impl <'a> Options<'a> {
     }
     pub fn get_id(&self) -> &Option<String> {
         &self.id
-    }
-    pub fn get_verify(&self) -> bool {
-        self.verify
     }
     pub fn get_skip_deps(&self) -> bool {
         self.skip_deps

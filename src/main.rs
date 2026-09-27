@@ -40,7 +40,7 @@ async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
             single_id(
                 &conf,
                 &client,
-                &out_dir
+                out_dir
             ).await?;
         },
         AppMode::CheckMods => {

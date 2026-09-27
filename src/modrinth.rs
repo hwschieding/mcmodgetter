@@ -705,6 +705,31 @@ pub async fn list_projects(
     ()
 }
 
+
+pub async fn download_from_id<'a>(
+    conf: &arguments::Config<'a>,
+    client: & reqwest::Client,
+    id: &str,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{   
+    download_from_id_list(conf, client, &vec![id.to_string()], out_dir).await?;
+
+    Ok(())
+}
+
+pub async fn verify_id<'a> (
+    conf: &arguments::Config<'a>,
+    client: & reqwest::Client,
+    id: &str,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>> {
+    
+    verify_ids_from_list(conf, client, &vec![id.to_string()], out_dir).await?;
+
+    Ok(())
+}
+
 // #[derive(Debug)]
 // pub enum ModError {
 //     NoFileForProj(String),

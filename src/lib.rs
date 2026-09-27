@@ -56,6 +56,13 @@ pub async fn verify<'a>(
         return Ok(())
     }
 
+    if let Some(id) = conf.options().get_id()
+    {
+        modrinth::verify_id(conf, client, id, out_dir).await?;
+
+        return Ok(())
+    }
+
     Ok(())
 }
 
@@ -85,11 +92,11 @@ pub async fn id_from_file<'a>(
 pub async fn single_id<'a>(
     conf: &arguments::Config<'a>,
     client: &reqwest::Client,
-    out_dir: &PathBuf
+    out_dir: PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     if let Some(id) = conf.options().get_id() {
-        // modrinth::handle_single_input(conf, client, id, out_dir).await?;
+        modrinth::download_from_id(conf, client, id, out_dir).await?;
     }
     Ok(())
 }

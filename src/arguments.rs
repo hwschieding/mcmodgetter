@@ -65,7 +65,7 @@ pub struct Config<'a> {
 impl<'a> Config<'a> {
     pub fn build_from_args(args: &'a Vec<String>) -> Result<Config<'a>, &'static str> {
         let mut is_download = false;
-        let mut mode: Result<AppMode, &'static str> = Err("No ID specified");
+        let mut mode: Result<AppMode, &'static str> = Err("Couldn't process arguments");
         let mut ops: Options = Options::new();
         let mut mcvs: Result<String, &'static str> = Err("No mc version specified");
         let mut loader: Loader = Loader::Fabric;

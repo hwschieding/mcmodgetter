@@ -608,6 +608,11 @@ pub async fn build_modlist_from_ids<'a>(
     // Get modlist
     let mut items = collect_mods(&pid_requester, ids).await;
 
+    if conf.options().get_skip_deps()
+    {
+        return items
+    }
+
     // Get dependencies
     let vid_requester = http_handler::BasicRequest::build(client);
     let dep_requester = DependencyRequester::build(&pid_requester, &vid_requester);

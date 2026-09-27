@@ -1,8 +1,8 @@
 use std::{path};
 use crate::http_handler;
 
-static VERIFICATION_SIG: &str = "VERIFY";
-static ERROR_SIG: &str = "ERROR";
+static VERIFICATION_SIG: &'static str = "VERIFY";
+static ERROR_SIG: &'static str = "ERROR";
 
 pub enum VerificationResult {
     Ok(String),

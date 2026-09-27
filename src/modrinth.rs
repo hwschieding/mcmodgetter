@@ -12,8 +12,8 @@ use crate::http_handler::{Downloader};
 use crate::items::Item;
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
 
-static MODRINTH_URL: &str = "https://api.modrinth.com/v2";
-static MODRINTH_SIG: &str = "MODRINTH";
+static MODRINTH_URL: &'static str = "https://api.modrinth.com/v2";
+static MODRINTH_SIG: &'static str = "MODRINTH";
 
 static MODRINTH_ITEM_ID: &'static str = "MR";
 

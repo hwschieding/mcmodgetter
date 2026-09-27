@@ -3,9 +3,9 @@ use std::{error, fmt, fs, io::{self, Write}, path::{Path, PathBuf}};
 use reqwest::Response;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::http_handler::DownloadError::BadVerify;
+use crate::http_handler;
 
-static DOWNLOAD_SIG: &str = "DOWNLOAD";
+static DOWNLOAD_SIG: &'static str = "DOWNLOAD";
 
 #[derive(Debug)]
 pub enum DownloadError {
@@ -213,7 +213,9 @@ impl<'a> Downloader<'a>
             Ok(())
         }
         else {
-            Err(BadVerify(String::from("Download could not be verified")))
+            Err(http_handler::DownloadError::BadVerify(
+                String::from("Download could not be verified")
+            ))
         }
     }
 }

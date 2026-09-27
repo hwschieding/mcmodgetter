@@ -9,8 +9,19 @@ pub mod file_parse;
 pub mod items;
 pub mod http_handler;
 
-const DEFAULT_OUT_DIR: &str = "mods";
-const APP_USER_AGENT: &str = concat!(
+static DEFAULT_OUT_DIR: &'static str = "mods";
+
+/*  
+    This user agent is only to be used for mcmodgetter and projects affiliated
+    with me (https://github.com/hwschieding) and mcmodgetter
+    (https://github.com/hwschieding/mcmodgetter).
+
+    I ask as a basic courtesy that this user agent not be reused or misused in
+    other projects, including forks and custom builds of mcmodgetter. As stated
+    in the README, forks/custom builds/redistributions are not affiliated with
+    or endorsed by me or mcmodgetter.
+*/
+static APP_USER_AGENT: &'static str = concat!(
     "hwschieding/",
     env!("CARGO_PKG_NAME"),
     "/",
@@ -143,8 +154,9 @@ pub fn help() -> () {
         "COMMANDS:
   download: Downloads specifed mods from modrinth (use -id or -file, -mcv required)
   checkmods: Verifies mods in mod folder against specified options
-  clearmods: Removes all .jar files in specified mod folder (use -o)
-  readmods: List all ids in the modlist file with a matching project title (use -file)
+  clearmods: Removes tracked files in specified mod folder (use -o if necessary)
+  readmods: Query names and descriptions for project ids in the specified file (use -file)
+  *Include at exactly one of these when running mcmodgetter.
 
   OPTIONS:
   -id <string>: Specifies single modrinth ID to download

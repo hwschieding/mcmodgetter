@@ -1,5 +1,6 @@
 use std::path::{Path};
 
+#[derive(Debug)]
 pub enum AppMode {
     DownloadId,
     DownloadFile,
@@ -13,6 +14,21 @@ pub enum Loader {
     Fabric,
     Neoforge,
     Forge
+}
+impl Loader {
+    pub fn as_str(&self) -> &'static str
+    {
+        match self
+        {
+            Self::Fabric => "fabric",
+            Self::Neoforge => "neoforge",
+            Self::Forge => "forge",
+        }
+    }
+    pub fn as_string(&self) -> String
+    {
+        String::from(self.as_str())
+    }
 }
 
 pub struct Options<'a> {
@@ -126,20 +142,16 @@ impl<'a> Config<'a> {
     pub fn out_dir(&self) -> &Option<&Path> {
         &self.out_dir
     }
-    pub fn loader_as_str(&self) -> &str {
-        match self.loader {
-            Loader::Fabric => "fabric",
-            Loader::Neoforge => "neoforge",
-            Loader::Forge => "forge"
-        }
-    }
-    pub fn loader_as_string(&self) -> String {
-        match self.loader {
-            Loader::Fabric => String::from("fabric"),
-            Loader::Neoforge => String::from("neoforge"),
-            Loader::Forge => String::from("forge")
-        }
-    }
+    // pub fn loader_as_str(&self) -> &str {
+    //     match self.loader {
+    //         Loader::Fabric => "fabric",
+    //         Loader::Neoforge => "neoforge",
+    //         Loader::Forge => "forge"
+    //     }
+    // }
+    // pub fn loader_as_string(&self) -> String {
+    //     String::from(self.loader_as_str())
+    // }
 }
 
 fn get_mcvs(mcvs: Option<&String>) -> Result<String, &'static str> {

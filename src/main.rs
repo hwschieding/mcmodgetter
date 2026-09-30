@@ -25,7 +25,7 @@ async fn main() {
 async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
     // println!("Starting...");
     let client = create_client()?;
-    let out_dir = get_out_dir(&conf.out_dir());
+    let out_dir = get_out_dir(&conf.out_dir())?;
     match conf.mode() {
         AppMode::DownloadFile => {
             create_out_dir(&out_dir)?;

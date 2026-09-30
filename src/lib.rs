@@ -1,4 +1,4 @@
-use std::{io, error, fs};
+use std::{env, io, error, fs};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -139,9 +139,13 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
-pub fn get_out_dir(conf_dir: &Option<&Path>) -> PathBuf {
-    let path = conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR));
-    PathBuf::from(path)
+pub fn get_out_dir(conf_dir: &Option<&Path>) -> io::Result<PathBuf> {
+    let res = env::current_dir()?
+        .join(conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR)))
+    ;
+    Ok(res)
+    // let path = conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR));
+    // PathBuf::from(path)
 }
 
 pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {

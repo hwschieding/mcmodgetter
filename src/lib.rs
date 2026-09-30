@@ -144,8 +144,6 @@ pub fn get_out_dir(conf_dir: &Option<&Path>) -> io::Result<PathBuf> {
         .join(conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR)))
     ;
     Ok(res)
-    // let path = conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR));
-    // PathBuf::from(path)
 }
 
 pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {

@@ -381,22 +381,6 @@ impl RequiredDependency {
     pub fn project_id(&self) -> &Option<String> {
         &self.project_id
     }
-    // pub async fn resolve_to_version(
-    //     &self,
-    //     client: &reqwest::Client,
-    //     query: &VersionQuery
-    // ) -> Result<Version, ModError>{
-    //     if let Some(v) = &self.version_id {
-    //         return match get_version_from_version_id(client, v).await {
-    //             Ok(v) => Ok(v),
-    //             Err(e) => Err(ModError::BadRequest(e))
-    //         }
-    //     } else if let Some(p) = &self.project_id {
-    //         return get_top_version(client, p, query).await
-    //     } else {
-    //         return Err(ModError::NoDependency("Could not resolve dependency".to_string()))
-    //     }
-    // }
 }
 
 impl Clone for RequiredDependency {

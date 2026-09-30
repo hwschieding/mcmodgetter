@@ -153,7 +153,7 @@ pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {
 
 pub fn help() -> () {
     println!(
-        "COMMANDS:
+        "mcmodgetter v1.1.1\n\nCOMMANDS:
   download: Downloads specifed mods from modrinth (use -id or -file, -mcv required)
   checkmods: Verifies mods in mod folder against specified options
   clearmods: Removes tracked files in specified mod folder (use -o if necessary)

@@ -1,6 +1,6 @@
-use std::{error, fmt, io};
+use std::{error, fmt};
 use std::collections::HashSet;
-use std::path::{PathBuf, Path};
+use std::path::{PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use serde::de::{Error};
@@ -9,7 +9,6 @@ use sha2::{Sha512, Digest};
 
 use crate::file_parse::TrackerFile;
 use crate::http_handler::{Downloader};
-use crate::items::Item;
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
 
 static MODRINTH_URL: &'static str = "https://api.modrinth.com/v2";
@@ -485,29 +484,6 @@ impl<'a> DependencyHandler<'a>
     }
 }
 
-fn filter_mods_by_tracker(
-    mods: Vec<ModrinthItem>,
-    tracker: &TrackerFile
-) -> Vec<ModrinthItem>
-{
-    let start_len = mods.len();
-
-    let res: Vec<ModrinthItem> = mods
-        .into_iter()
-        .filter(|item| !tracker.matches_entry(item))
-        .collect()
-    ;
-
-    let new_len = res.len();
-
-    println!("\n{} mods are available for download\n{} are already present\n",
-        new_len,
-        start_len - new_len
-    );
-
-    res
-}
-
 async fn collect_mods<'a>(
     requester: &http_handler::QueryRequest<'a, VersionQuery>,
     ids: &Vec<String>,
@@ -535,21 +511,21 @@ async fn collect_mods<'a>(
     .collect()
 }
 
-async fn download_mods<'a>(
-    downloader: &http_handler::Downloader<'a>,
-    mods: &mut Vec<ModrinthItem>,
-) -> ()
-{
-    let mut download_futures = Vec::new();
+// async fn download_mods<'a>(
+//     downloader: &http_handler::Downloader<'a>,
+//     mods: &mut Vec<ModrinthItem>,
+// ) -> ()
+// {
+//     let mut download_futures = Vec::new();
 
-    for m in mods
-    {
-        download_futures.push(m.download(downloader));
-    }
+//     for m in mods
+//     {
+//         download_futures.push(m.download(downloader));
+//     }
 
-    future::join_all(download_futures).await;
-    ()
-}
+//     future::join_all(download_futures).await;
+//     ()
+// }
 
 pub async fn build_modlist_from_ids<'a>(
     conf: &arguments::Config<'a>,
@@ -580,14 +556,14 @@ pub async fn build_modlist_from_ids<'a>(
     items
 }
 
-fn ask_user_to_download(out_dir: &Path) -> io::Result<bool>
-{
-    println!("Download all items to directory '{}'? (y/n)", out_dir.display());
-    let mut user_ans = String::new();
-    io::stdin().read_line(&mut user_ans)?;
+// fn ask_user_to_download(out_dir: &Path) -> io::Result<bool>
+// {
+//     println!("Download all items to directory '{}'? (y/n)", out_dir.display());
+//     let mut user_ans = String::new();
+//     io::stdin().read_line(&mut user_ans)?;
 
-    Ok(user_ans.trim().to_lowercase() == "y")
-}
+//     Ok(user_ans.trim().to_lowercase() == "y")
+// }
 
 pub async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a>,
@@ -599,9 +575,9 @@ pub async fn download_from_id_list<'a>(
     let mut items = build_modlist_from_ids(conf, client, ids).await;
 
     let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
-    items = filter_mods_by_tracker(items, &tracker);
+    items = items::filter_items_by_tracker(items, &tracker);
 
-    if !ask_user_to_download(&out_dir)?
+    if !items::ask_user_to_download(&out_dir)?
     {
         return Ok(())
     }
@@ -610,7 +586,7 @@ pub async fn download_from_id_list<'a>(
 
     // Download
     let downloader = http_handler::Downloader::build(client, out_dir);
-    download_mods(&downloader, &mut items).await;
+    items::download_items(&downloader, &mut items).await;
 
     tracker.update(items);
     tracker.write_csv();
@@ -630,7 +606,7 @@ pub async fn verify_ids_from_list<'a>(
 
     let tracker: TrackerFile = TrackerFile::build(&out_dir)?;
 
-    filter_mods_by_tracker(items, &tracker);
+    items::filter_items_by_tracker(items, &tracker);
 
     Ok(())
 }

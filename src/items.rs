@@ -1,5 +1,7 @@
-use std::{path};
-use crate::http_handler;
+use std::{path::{Path, PathBuf}, io};
+use futures::future;
+
+use crate::{http_handler, file_parse::{TrackerFile}};
 
 static VERIFICATION_SIG: &'static str = "VERIFY";
 static ERROR_SIG: &'static str = "ERROR";
@@ -37,8 +39,60 @@ pub trait Item {
     ) -> impl std::future::Future<Output = ()> + Send;
     fn id(&self) -> &String;
     fn version_id(&self) -> &String;
-    fn filename(&self) -> &path::PathBuf;
+    fn filename(&self) -> &PathBuf;
     fn downloaded(&self) -> bool;
 
     fn item_id(&self) -> &'static str;
+}
+
+pub fn filter_items_by_tracker<T>(
+    items: Vec<T>,
+    tracker: &TrackerFile
+) -> Vec<T>
+where
+    T: Item
+{
+    let start_len = items.len();
+
+    let res: Vec<T> = items
+        .into_iter()
+        .filter(|item| !tracker.matches_entry(item))
+        .collect()
+    ;
+
+    let new_len = res.len();
+
+    println!("\n{} items are available for download\n{} are already present\n",
+        new_len,
+        start_len - new_len
+    );
+
+    res
+}
+
+pub async fn download_items<'a, T>(
+    downloader: &http_handler::Downloader<'a>,
+    items: &mut Vec<T>,
+) -> ()
+where
+    T: Item
+{
+    let mut download_futures = Vec::new();
+
+    for m in items
+    {
+        download_futures.push(m.download(downloader));
+    }
+
+    future::join_all(download_futures).await;
+    ()
+}
+
+pub fn ask_user_to_download(out_dir: &Path) -> io::Result<bool>
+{
+    println!("Download all items to directory '{}'? (y/n)", out_dir.display());
+    let mut user_ans = String::new();
+    io::stdin().read_line(&mut user_ans)?;
+
+    Ok(user_ans.trim().to_lowercase() == "y")
 }

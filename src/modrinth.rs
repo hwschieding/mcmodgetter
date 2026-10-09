@@ -7,6 +7,7 @@ use serde::de::{Error};
 use sha2::digest::Output;
 use sha2::{Sha512, Digest};
 
+use crate::arguments::{DownloadSettings, Platform};
 use crate::file_parse::TrackerFile;
 use crate::http_handler::{Downloader};
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
@@ -528,23 +529,30 @@ async fn collect_mods<'a>(
 // }
 
 pub async fn build_modlist_from_ids<'a>(
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: & reqwest::Client,
     ids: &Vec<String>,
-) -> Vec<ModrinthItem>
+) -> Result<Vec<ModrinthItem>, Box<dyn error::Error>>
 {
+    let user_loader = conf
+        .settings()
+        .platform()
+        .try_get_modrinth()
+        .ok_or("No modrinth loader specified")?
+    ;
+
     let query = VersionQuery::build_query(
-        conf.mcvs(),
-        &conf.loader().as_string()
+        conf.settings().version_search(),
+        &user_loader.as_string()
     );
     let pid_requester = http_handler::QueryRequest::<VersionQuery>::build(client, query);
 
     // Get modlist
     let mut items = collect_mods(&pid_requester, ids).await;
 
-    if conf.options().get_skip_deps()
+    if conf.opts().skip_deps()
     {
-        return items
+        return Ok(items)
     }
 
     // Get dependencies
@@ -553,7 +561,7 @@ pub async fn build_modlist_from_ids<'a>(
     let mut dep_handler = DependencyHandler::build(&mut items);
     dep_handler.acquire_all_dependencies(&dep_requester).await;
 
-    items
+    Ok(items)
 }
 
 // fn ask_user_to_download(out_dir: &Path) -> io::Result<bool>
@@ -566,13 +574,13 @@ pub async fn build_modlist_from_ids<'a>(
 // }
 
 pub async fn download_from_id_list<'a>(
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: & reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
-    let mut items = build_modlist_from_ids(conf, client, ids).await;
+    let mut items = build_modlist_from_ids(conf, client, ids).await?;
 
     let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
     items = items::filter_items_by_tracker(items, &tracker);
@@ -597,12 +605,12 @@ pub async fn download_from_id_list<'a>(
 }
 
 pub async fn verify_ids_from_list<'a>(
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: & reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
-    let items = build_modlist_from_ids(conf, client, ids).await;
+    let items = build_modlist_from_ids(conf, client, ids).await?;
 
     let tracker: TrackerFile = TrackerFile::build(&out_dir)?;
 
@@ -665,7 +673,7 @@ pub async fn list_projects(
 
 
 pub async fn download_from_id<'a>(
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: & reqwest::Client,
     id: &str,
     out_dir: PathBuf
@@ -677,7 +685,7 @@ pub async fn download_from_id<'a>(
 }
 
 pub async fn verify_id<'a> (
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: & reqwest::Client,
     id: &str,
     out_dir: PathBuf

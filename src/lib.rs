@@ -1,6 +1,8 @@
 use std::{env, io, error, fs};
 use std::path::{Path, PathBuf};
 
+use crate::arguments::{DownloadSettings, ReadModsSettings};
+
 #[cfg(test)]
 mod tests;
 pub mod modrinth;
@@ -37,12 +39,13 @@ fn get_ids<'a>(f: &Path) -> io::Result<file_parse::FileIDs> {
 }
 
 pub async fn read_mods<'a>(
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &ReadModsSettings>,
     client: &reqwest::Client,
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    if let Some(filename) = conf.options().get_file() {
-        let ids = get_ids(filename)?;
+    if let arguments::IdSupplier::File(f) = conf.settings().supplier()
+    {
+        let ids = get_ids(f)?;
         if let Some(modrinth_ids) = ids.modrinth() {
             modrinth::list_projects(client, modrinth_ids).await;
         }
@@ -52,13 +55,28 @@ pub async fn read_mods<'a>(
     Ok(())
 }
 
-pub async fn verify<'a>(
-    conf: &arguments::Config<'a>,
+pub async fn operation_download<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: &reqwest::Client,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
-    if let Some(file) = conf.options().get_file()
+    match conf.settings().supplier()
+    {
+        arguments::IdSupplier::File(file) => 
+            id_from_file(conf, client, get_ids(file)?, out_dir).await,
+        arguments::IdSupplier::Id(id) =>
+            single_id(conf, client, id, out_dir).await
+    }
+}
+
+pub async fn operation_verify<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: &reqwest::Client,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    if let arguments::IdSupplier::File(file) = conf.settings().supplier()
     {
         let ids = get_ids(file)?;
         if let Some(modrinth_ids) = ids.modrinth()
@@ -69,7 +87,7 @@ pub async fn verify<'a>(
         return Ok(())
     }
 
-    if let Some(id) = conf.options().get_id()
+    if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
     {
         modrinth::verify_id(conf, client, id, out_dir).await?;
 
@@ -80,20 +98,13 @@ pub async fn verify<'a>(
 }
 
 pub async fn id_from_file<'a>(
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: &reqwest::Client,
+    ids: file_parse::FileIDs,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
-    let ids = match conf.options().get_file()
-    {
-        Some(filename) => get_ids(filename)?,
-        None => {
-            println!("Couldn't get filename");
-            return Ok(())
-        }
-    };
-
+    
     if let Some(modrinth_ids) = ids.modrinth() {
         println!("Handling modrinth ids...");
         modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await?;
@@ -103,14 +114,13 @@ pub async fn id_from_file<'a>(
 }
 
 pub async fn single_id<'a>(
-    conf: &arguments::Config<'a>,
+    conf: &arguments::Config<'a, &DownloadSettings>,
     client: &reqwest::Client,
+    id: &str,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    if let Some(id) = conf.options().get_id() {
-        modrinth::download_from_id(conf, client, id, out_dir).await?;
-    }
+    modrinth::download_from_id(conf, client, id, out_dir).await?;
     Ok(())
 }
 
@@ -141,9 +151,9 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
-pub fn get_out_dir(conf_dir: &Option<&Path>) -> io::Result<PathBuf> {
+pub fn get_out_dir(conf_dir: Option<&PathBuf>) -> io::Result<PathBuf> {
     let res = env::current_dir()?
-        .join(conf_dir.unwrap_or(Path::new(DEFAULT_OUT_DIR)))
+        .join(conf_dir.unwrap_or(&PathBuf::from(DEFAULT_OUT_DIR)))
     ;
     Ok(res)
 }

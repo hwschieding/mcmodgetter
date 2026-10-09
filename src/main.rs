@@ -2,52 +2,50 @@ use std::{env, process};
 use std::error::Error;
 
 use mcmodgetter::{
-    clear_mods, create_client, create_out_dir, get_out_dir, help, id_from_file, read_mods, single_id, verify
+    arguments, clear_mods, create_client, create_out_dir, get_out_dir, help, operation_download, operation_verify, read_mods
 };
-use mcmodgetter::arguments::{Config, AppMode};
+use mcmodgetter::arguments::{RawConfig, AppMode};
 
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
-    let conf = Config::build_from_args(&args)
+    let conf = build_args(&args)
         .unwrap_or_else(|e| {
             eprintln!("{e}");
             help();
             process::exit(1);
-        }
-    );
+        })
+    ;
     if let Err(e) = run(conf).await {
         eprintln!("{e}");
         process::exit(1);
     }
 }
 
-async fn run<'a>(conf: Config<'a>) -> Result<(), Box<dyn Error>> {
+fn build_args(args: &Vec<String>) -> Result<RawConfig, Box<dyn Error>>
+{
+    Ok(arguments::ConfigBuilder::new_from_args(args)?
+        .build()?
+    )
+}
+
+async fn run(raw_conf: RawConfig) -> Result<(), Box<dyn Error>> {
     // println!("Starting...");
     let client = create_client()?;
-    let out_dir = get_out_dir(&conf.out_dir())?;
-    match conf.mode() {
-        AppMode::DownloadFile => {
+    let out_dir = get_out_dir(raw_conf.options().out_dir())?;
+    match raw_conf.mode() {
+        AppMode::Download(settings) => {
             create_out_dir(&out_dir)?;
-            id_from_file(
-                &conf,
-                &client,
-                out_dir
-            ).await?;
+            let conf = arguments::Config::build(&settings, raw_conf.options());
+            operation_download(&conf, &client, out_dir).await?
         },
-        AppMode::DownloadId => {
+        AppMode::CheckMods(settings) => {
             create_out_dir(&out_dir)?;
-            single_id(
-                &conf,
-                &client,
-                out_dir
-            ).await?;
-        },
-        AppMode::CheckMods => {
-            create_out_dir(&out_dir)?;
-            verify(&conf, &client, out_dir).await?;
+            let conf = arguments::Config::build(&settings, raw_conf.options());
+            operation_verify(&conf, &client, out_dir).await?;
         }
-        AppMode::ReadMods => {
+        AppMode::ReadMods(settings) => {
+            let conf = arguments::Config::build(&settings, raw_conf.options());
             read_mods(&conf, &client).await?;
         }
         AppMode::ClearMods => {

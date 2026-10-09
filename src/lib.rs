@@ -10,6 +10,8 @@ pub mod items;
 pub mod http_handler;
 
 static DEFAULT_OUT_DIR: &'static str = "mods";
+// static PKG_NAME: &'static str = env!("CARGO_PKG_NAME");
+// static CARGO_PKG_VERSION
 
 /*  
     This user agent is only to be used for mcmodgetter and projects affiliated
@@ -153,7 +155,7 @@ pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {
 
 pub fn help() -> () {
     println!(
-        "mcmodgetter v1.1.1\n\nCOMMANDS:
+        "{} v{}\n\nCOMMANDS:
   download: Downloads specifed mods from modrinth (use -id or -file, -mcv required)
   checkmods: Verifies mods in mod folder against specified options
   clearmods: Removes tracked files in specified mod folder (use -o if necessary)
@@ -172,7 +174,9 @@ pub fn help() -> () {
 
   --skipdeps: Skip searching for and downloading mod dependencies
   
-  -h, --help, -help: Show this help prompt"
+  -h, --help, -help: Show this help prompt",
+    env!("CARGO_PKG_NAME"),
+    env!("CARGO_PKG_VERSION")
     )
 }
 

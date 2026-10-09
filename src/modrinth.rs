@@ -464,17 +464,13 @@ impl<'a> DependencyHandler<'a>
             }
         };
 
-        let curr_size = self.modlist.len();
-
-        for (i, value) in deps
-            .into_iter()
-            .enumerate()
+        for value in deps
         {
             if !self.present_ids.contains(&value.id){
                 modrinth_msg(format!("Found dependency: {}", value.version_title()));
                 self.present_ids.insert(value.id.clone());
 
-                self.dep_check_stack.push(curr_size + i);
+                self.dep_check_stack.push(self.modlist.len());
                 self.modlist.push(value);
             }
         }

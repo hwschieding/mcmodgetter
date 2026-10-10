@@ -198,14 +198,27 @@ impl ModrinthItem
         }
     }
 
-    async fn get_dependencies<'a>(
+    async fn _get_dependencies<'a>(
         &self,
         requester: &DependencyRequester<'a>
     ) -> Vec<Self>
     {
-        let mut res: Vec<Self> = Vec::new();
+        self.get_filtered_deps(requester, |_| { true }).await
+    }
 
-        for dep in &self.dependencies
+    async fn get_filtered_deps<'a, F>(
+        &self,
+        requester: &DependencyRequester<'a>,
+        verify: F,
+    ) -> Vec<Self>
+    where F: Fn(&RequiredDependency) -> bool
+    {
+        let mut res = Vec::<Self>::new();
+
+        for dep in self.dependencies
+            .iter()
+            .filter(|d| verify(d))
+            .collect::<Vec<_>>()
         {
             match Self::try_dep(requester, dep).await
             {
@@ -213,7 +226,7 @@ impl ModrinthItem
                 None => { modrinth_msg(format!("Couldn't acquire dependency for id '{}'", self.id)); }
             }
         }
-        
+
         res
     }
 }
@@ -476,12 +489,25 @@ impl<'a> DependencyHandler<'a>
         DependencyHandler { modlist, dep_check_stack, present_ids }
     }
 
+    fn is_dep_present(&self, dep: &RequiredDependency) -> bool
+    {
+        if let Some(pid) = dep.project_id()
+            && self.present_ids.contains(pid)
+        {
+            return true
+        }
+
+        false
+    }
+
     async fn try_get_deps(&mut self, requester: &DependencyRequester<'a>, idx: &usize)
     {
         let deps = {
             match self.modlist.get(*idx)
             {
-                Some(item) => item.get_dependencies(requester).await,
+                Some(item) => item.get_filtered_deps(
+                    requester,
+                    |d| { !self.is_dep_present(d) }).await,
                 None => { return () }
             }
         };

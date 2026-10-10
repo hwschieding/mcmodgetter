@@ -174,7 +174,9 @@ impl ModrinthItem
     ) -> Result<Self, ModrinthItemError>
     {
         let url = format!("{}/version/{}", MODRINTH_URL, version_id);
-        Self::build_from_version(direct_requester.retrieve_deserialized::<ModrinthVersion>(&url).await?)
+        Self::build_from_version(
+            direct_requester.retrieve_deserialized::<ModrinthVersion>(&url).await?
+        )
     }
 
     async fn try_dep<'a>(
@@ -183,12 +185,18 @@ impl ModrinthItem
     ) -> Option<Self>
     {
         if let Some(id) = &dep.version_id
-            && let Ok(m) = Self::build_from_version_id(requester.version_id_requester(), id).await
+            && let Ok(m) = Self::build_from_version_id(
+                requester.version_id_requester(),
+                id
+            ).await
         {
             Some(m)
         }
         else if let Some(id) = &dep.project_id
-            && let Ok(m) = Self::build_from_id(requester.project_id_requester(), id).await
+            && let Ok(m) = Self::build_from_id(
+                requester.project_id_requester(),
+                id
+            ).await
         {
             Some(m)
         }
@@ -378,10 +386,18 @@ impl VersionQuery {
         res.push(']');
         res
     }
-    pub fn build_query(user_mcvs: &String, user_loader: &Vec<arguments::Platform>) -> VersionQuery {
+    pub fn build_query(
+        user_mcvs: &String,
+        user_loader: &Vec<arguments::Platform>
+    ) -> VersionQuery {
         let game_versions= Self::build_version_array(user_mcvs);
         let loaders= Self::build_loader_array(user_loader);
-        VersionQuery { game_versions, loaders, include_changelog: false, limit: 1 }
+        VersionQuery {
+            game_versions,
+            loaders,
+            include_changelog: false,
+            limit: 1
+        }
     }
     pub fn mcvs(&self) -> &str {
         &self.game_versions.as_str()
@@ -452,7 +468,7 @@ struct DependencyRequester<'a>
 }
 impl<'a> DependencyRequester<'a>
 {
-    pub fn build(
+    pub fn new(
         pid_req: &'a http_handler::QueryRequest<'a, VersionQuery>,
         vid_req: &'a http_handler::BasicRequest<'a>
     ) -> DependencyRequester<'a>
@@ -460,7 +476,9 @@ impl<'a> DependencyRequester<'a>
         DependencyRequester { pid_req, vid_req }
     }
 
-    pub fn project_id_requester(&self) -> &'a http_handler::QueryRequest<'a, VersionQuery>
+    pub fn project_id_requester(
+        &self
+    ) -> &'a http_handler::QueryRequest<'a, VersionQuery>
     {
         self.pid_req
     }
@@ -524,7 +542,10 @@ impl<'a> DependencyHandler<'a>
         }
     }
 
-    pub async fn acquire_all_dependencies(&mut self, requester: &DependencyRequester<'a>) -> ()
+    pub async fn acquire_all_dependencies(
+        &mut self,
+        requester: &DependencyRequester<'a>
+    ) -> ()
     {
         while let Some(idx) = self.dep_check_stack.pop()
         {
@@ -566,20 +587,22 @@ pub async fn build_modlist_from_ids<'a>(
     ids: &Vec<String>,
 ) -> Result<Vec<ModrinthItem>, Box<dyn error::Error>>
 {
-    let user_loader = conf
-        .settings()
-        .platform()
-        .get()
-    ;
-
     let query = VersionQuery::build_query(
         conf.settings().version_search(),
-        user_loader
+        conf.settings().platform().get(),
     );
-    let mut pid_requester = http_handler::QueryRequest::<VersionQuery>::build(client, query);
+
+    let mut pid_requester = http_handler::QueryRequest::<VersionQuery>::build(
+        client,
+        query
+    );
+    
     if conf.opts().release_only()
     {
-        pid_requester.add_query((String::from("version_type"), String::from("release")));
+        pid_requester.add_query(http_handler::QueryParam::new(
+            "version_type",
+            "release"
+        ));
     }
 
     // Get modlist
@@ -592,7 +615,10 @@ pub async fn build_modlist_from_ids<'a>(
 
     // Get dependencies
     let vid_requester = http_handler::BasicRequest::build(client);
-    let dep_requester = DependencyRequester::build(&pid_requester, &vid_requester);
+    let dep_requester = DependencyRequester::new(
+        &pid_requester,
+        &vid_requester
+    );
     let mut dep_handler = DependencyHandler::build(&mut items);
     dep_handler.acquire_all_dependencies(&dep_requester).await;
 

@@ -120,7 +120,7 @@ pub struct QueryRequest<'a, T>
 {
     client: &'a reqwest::Client,
     query: T,
-    extra_queries: Vec<(String, String)>,
+    extra_queries: Vec<QueryParam>,
 }
 
 impl<'a, T> QueryRequest<'a, T>
@@ -130,7 +130,7 @@ where T: Serialize
     {
         QueryRequest { client, query , extra_queries: Vec::new() }
     }
-    pub fn add_query(&mut self, q: (String, String)) -> ()
+    pub fn add_query(&mut self, q: QueryParam) -> ()
     {
         self.extra_queries.push(q);
     }
@@ -147,9 +147,9 @@ where
     {
         let mut builder = self.client.get(url)
             .query(&self.query);
-        for (key, val) in &self.extra_queries
+        for prm in &self.extra_queries
         {
-            builder = builder.query(&[(key, val)]);
+            builder = builder.query(&[prm.get()]);
         }
 
         // let request = builder.build()?;
@@ -157,6 +157,27 @@ where
 
         // self.client.execute(request).await
         builder.send().await
+    }
+}
+
+pub struct QueryParam
+{
+    parameter: String,
+    value: String,
+}
+
+impl QueryParam
+{
+    pub fn new(parameter: &str, value: &str) -> Self
+    {
+        QueryParam {
+            parameter: String::from(parameter),
+            value: String::from(value),
+        }
+    }
+    fn get(&self) -> (&String, &String)
+    {
+        (&self.parameter, &self.value)
     }
 }
 

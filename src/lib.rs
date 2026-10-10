@@ -164,8 +164,8 @@ pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {
 pub fn help() -> () {
     println!(
         "{} v{}\n\nCOMMANDS:
-  download: Downloads specifed mods from modrinth (use -id or -file, -mcv required)
-  checkmods: Verifies mods in mod folder against specified options
+  download: Downloads specifed items from a provider (use -id or -file, -mcv required)
+  checkmods: Verifies items in mod folder against specified options
   clearmods: Removes tracked files in specified mod folder (use -o if necessary)
   readmods: Query names and descriptions for project ids in the specified file (use -file)
   *Include at exactly one of these when running mcmodgetter.
@@ -174,9 +174,11 @@ pub fn help() -> () {
   -id <string>: Specifies single modrinth ID to download
   -file <filename>: Specifies filename of modrinth IDs to download
 
-  -mcv <minecraft version>: Specifies MC version to query for mods
-  -l <mod loader> [DEFAULT=fabric]: Specifies mod loader to query for (fabric, forge, etc)
-  *To query for multiple versions/loaders, separate by commas(,) with no spaces
+  -mcv <minecraft version>: Specifies MC version to query for items
+  [-modrinth|-hangar] <platform>: Specify which provider to download from and a platform.
+      Possible platforms are: fabric, forge, neoforge, paper, velocity
+  *To query for multiple versions/platforms, separate by commas(,) with no spaces
+  **Provider and plaform default to Modrinth and Fabric respectively
 
   -o <folder> [DEFAULT=mods]: Specifies output folder for mods relative to local directory
 

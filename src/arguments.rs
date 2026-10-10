@@ -362,18 +362,12 @@ impl ConfigBuilder
         arg_iter.next();
         while let Some(arg) = arg_iter.next()
         {
-            match arg.as_str()
+            match arg.to_lowercase().as_str()
             {
                 "download" => mode = Some(ModeArg::Download),
                 "clearmods" => mode = Some(ModeArg::ClearMods),
                 "checkmods" => mode = Some(ModeArg::CheckMods),
                 "readmods" => mode = Some(ModeArg::ReadMods),
-                // "-l" => platform = Some(
-                //     try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
-                // ),
-                // "-loader" => platform = Some(
-                //     try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
-                // ),
                 "-modrinth" => {
                     api = Some(Api::Modrinth);
                     platforms = Some(

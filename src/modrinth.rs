@@ -7,7 +7,7 @@ use serde::de::{Error};
 use sha2::digest::Output;
 use sha2::{Sha512, Digest};
 
-use crate::arguments::{DownloadSettings, Platform};
+use crate::arguments::{DownloadSettings};
 use crate::file_parse::TrackerFile;
 use crate::http_handler::{Downloader};
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
@@ -328,24 +328,44 @@ pub struct VersionQuery {
 }
 
 impl VersionQuery {
-    fn build_param_array(user_params: &String) -> String {
+    fn array_start_string(prm: &str) -> String
+    {
+        format!("[\"{}\"", prm)
+    }
+    fn next_param(s: &mut String, prm: &str) -> ()
+    {
+        s.push_str(&format!(",\"{}\"", prm));
+    }
+    fn build_version_array(user_params: &String) -> String {
         let mut params = user_params.split(",");
-        let mut res: String = String::from("[");
-        res = format!("{}\"{}\"",
-            res,
-            params.next().unwrap_or(""),
+        let mut res: String = Self::array_start_string(
+            params.next().unwrap_or("")
         );
         while let Some(prm) = params.next() {
-            res = format!("{},\"{}\"",
-                res,
-                prm,
-            );
+            Self::next_param(&mut res, prm);
         }
-        format!("{}]", res)
+        res.push(']');
+        res
     }
-    pub fn build_query(user_mcvs: &String, user_loader: &String) -> VersionQuery {
-        let game_versions= Self::build_param_array(user_mcvs);
-        let loaders= Self::build_param_array(user_loader);
+    fn build_loader_array(user_loaders: &Vec<arguments::Platform>) -> String
+    {
+        let mut loaders = user_loaders.iter();
+        let mut res = Self::array_start_string(match loaders.next()
+            {
+                Some(l) => l.to_str(),
+                None => "",
+            }
+        );
+        while let Some(l) = loaders.next()
+        {
+            Self::next_param(&mut res, l.to_str());
+        }
+        res.push(']');
+        res
+    }
+    pub fn build_query(user_mcvs: &String, user_loader: &Vec<arguments::Platform>) -> VersionQuery {
+        let game_versions= Self::build_version_array(user_mcvs);
+        let loaders= Self::build_loader_array(user_loader);
         VersionQuery { game_versions, loaders }
     }
     pub fn mcvs(&self) -> &str {
@@ -537,13 +557,12 @@ pub async fn build_modlist_from_ids<'a>(
     let user_loader = conf
         .settings()
         .platform()
-        .try_get_modrinth()
-        .ok_or("No modrinth loader specified")?
+        .get()
     ;
 
     let query = VersionQuery::build_query(
         conf.settings().version_search(),
-        &user_loader.as_string()
+        user_loader
     );
     let pid_requester = http_handler::QueryRequest::<VersionQuery>::build(client, query);
 

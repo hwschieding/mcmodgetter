@@ -18,6 +18,18 @@ static PLATFORM_NEOFORGE: &'static str = "neoforge";
 static PLATFORM_PAPER: &'static str = "paper";
 static PLATFORM_VELOCITY: &'static str = "velocity";
 
+const MODRINTH_PLATFORMS: &[&str] = &[
+    PLATFORM_FABRIC,
+    PLATFORM_FORGE,
+    PLATFORM_NEOFORGE,
+    PLATFORM_PAPER
+];
+
+const HANGAR_PLATFORMS: &[&str] = &[
+    PLATFORM_PAPER,
+    PLATFORM_VELOCITY,
+];
+
 #[derive(Debug)]
 pub enum AppMode {
     Download(DownloadSettings),
@@ -64,108 +76,105 @@ impl ReadModsSettings
         &self.supplier
     }
 }
-pub trait Platform
-{
-    fn from_str(plat: &str) -> Option<Self> where Self: Sized;
-    fn as_str(&self) -> &'static str;
-    fn as_string(&self) -> String
-    {
-        String::from(self.as_str())
-    }
-    fn get_default() -> Self where Self: Sized;
-}
 
 #[derive(Debug)]
-pub enum UserPlatform {
-    Modrinth(ModLoader),
-    Hangar(PluginPlatform),
+pub enum Api
+{
+    Modrinth,
+    Hangar
 }
-
-impl UserPlatform {
-    pub fn build_from_platform(plat: &str) -> Option<Self>
+impl Api
+{
+    fn default() -> Self
     {
-        if let Some(l) = ModLoader::from_str(plat)
-        {
-            return Some(Self::Modrinth(l));
-        };
-
-        if let Some(p) = PluginPlatform::from_str(plat)
-        {
-            return Some(Self::Hangar(p));
-        };
-
-        None
+        Self::Modrinth
     }
-    pub fn get_default() -> Self
+    fn get_valid_platform(&self, plat: &str) -> Option<Platform>
     {
-        Self::Modrinth(ModLoader::get_default())
+        if self.is_valid_platform(plat)
+        {
+            Platform::from_str(plat)
+        }
+        else { None }
     }
-    pub fn try_get_modrinth(&self) -> Option<&ModLoader>
+    fn is_valid_platform(&self, plat: &str) -> bool
     {
         match self
         {
-            UserPlatform::Modrinth(m) => Some(m),
-            _ => None,
+            Self::Modrinth => MODRINTH_PLATFORMS.contains(&plat),
+            Self::Hangar => HANGAR_PLATFORMS.contains(&plat),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum ModLoader {
+pub enum Platform
+{
     Fabric,
-    Neoforge,
     Forge,
+    Neoforge,
+    Paper,
+    Velocity,
 }
-
-impl Platform for ModLoader {
-    fn from_str(loader: &str) -> Option<Self>
+impl Platform
+{
+    fn default() -> Self
     {
-        if loader == PLATFORM_FABRIC { Some(Self::Fabric) }
-        else if loader == PLATFORM_FORGE { Some(Self::Forge) }
-        else if loader == PLATFORM_NEOFORGE { Some(Self::Neoforge) }
+        Self::Fabric
+    }
+    fn from_str(s: &str) -> Option<Self>
+    {
+        if      s == PLATFORM_FABRIC   { Some(Self::Fabric) }
+        else if s == PLATFORM_FORGE    { Some(Self::Forge) }
+        else if s == PLATFORM_NEOFORGE { Some(Self::Neoforge) }
+        else if s == PLATFORM_PAPER    { Some(Self::Paper) }
+        else if s == PLATFORM_VELOCITY { Some(Self::Velocity) }
         else { None }
     }
-
-    fn as_str(&self) -> &'static str
+    pub fn to_str(&self) -> &'static str
     {
         match self
         {
             Self::Fabric => PLATFORM_FABRIC,
-            Self::Neoforge => PLATFORM_NEOFORGE,
             Self::Forge => PLATFORM_FORGE,
-        }
-    }
-
-    fn get_default() -> Self where Self: Sized {
-        Self::Fabric
-    }
-}
-
-#[derive(Debug)]
-pub enum PluginPlatform {
-    Paper,
-    Velocity,
-}
-
-impl Platform for PluginPlatform
-{
-    fn from_str(plat: &str) -> Option<Self>
-    {
-        if plat == PLATFORM_PAPER { Some(Self::Paper) }
-        else if plat == PLATFORM_VELOCITY { Some(Self::Velocity) }
-        else { None }
-    }
-
-    fn as_str(&self) -> &'static str {
-        match self
-        {
             Self::Paper => PLATFORM_PAPER,
+            Self::Neoforge => PLATFORM_NEOFORGE,
             Self::Velocity => PLATFORM_VELOCITY,
         }
     }
+    pub fn to_string(&self) -> String
+    {
+        String::from(self.to_str())
+    }
+}
 
-    fn get_default() -> Self where Self: Sized {
-        Self::Paper
+
+#[derive(Debug)]
+pub struct UserPlatform {
+    api: Api,
+    platforms: Vec<Platform>,
+}
+impl UserPlatform {
+    fn build(api: Api, platform_arg: &str) -> Self
+    {
+        let mut platforms = Vec::<Platform>::new();
+        for plat in platform_arg.split(',')
+        {
+            match api.get_valid_platform(plat)
+            {
+                Some(p) => platforms.push(p),
+                None => println!("Unrecognized platform '{}'", plat),
+            }
+        }
+        UserPlatform { api, platforms }
+    }
+    pub fn get(&self) -> &Vec<Platform>
+    {
+        &self.platforms
+    }
+    pub fn api(&self) -> &Api
+    {
+        &self.api
     }
 }
 
@@ -312,9 +321,10 @@ enum IdModeArg
 pub struct ConfigBuilder
 {
     mode: ModeArg,
-    platform: Option<String>,
+    platforms: Option<String>,
     platform_version: Option<String>,
     id_mode: Option<IdModeArg>,
+    api: Option<Api>,
     output: Option<String>,
     skip_deps: bool
 }
@@ -324,9 +334,10 @@ impl ConfigBuilder
     pub fn new_from_args(args: &Vec<String>) -> Result<Self, &'static str>
     {
         let mut mode: Option<ModeArg> = None;
-        let mut platform: Option<String> = None;
+        let mut platforms: Option<String> = None;
         let mut platform_version: Option<String> = None;
         let mut id_mode: Option<IdModeArg> = None;
+        let mut api: Option<Api> = None;
         let mut output: Option<String> = None;
         let mut skip_deps: bool = false;
 
@@ -340,12 +351,24 @@ impl ConfigBuilder
                 "clearmods" => mode = Some(ModeArg::ClearMods),
                 "checkmods" => mode = Some(ModeArg::CheckMods),
                 "readmods" => mode = Some(ModeArg::ReadMods),
-                "-l" => platform = Some(
-                    try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
-                ),
-                "-loader" => platform = Some(
-                    try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
-                ),
+                // "-l" => platform = Some(
+                //     try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
+                // ),
+                // "-loader" => platform = Some(
+                //     try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
+                // ),
+                "-modrinth" => {
+                    api = Some(Api::Modrinth);
+                    platforms = Some(
+                        try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
+                    )
+                },
+                "-hangar" => {
+                    api = Some(Api::Hangar);
+                    platforms = Some(
+                        try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
+                    )
+                }
                 "-mcv" => platform_version = Some(
                     try_get_arg(arg_iter.next(), VERSION_MISSING)?
                 ),
@@ -368,7 +391,7 @@ impl ConfigBuilder
         
         let mode = mode.ok_or("No command specified")?;
 
-        Ok(Self {mode, platform, platform_version, id_mode, output, skip_deps})
+        Ok(Self {mode, platforms, platform_version, id_mode, api, output, skip_deps})
     }
 
     fn build_clearmods(self) -> Result<RawConfig, &'static str>
@@ -408,15 +431,18 @@ impl ConfigBuilder
         let versions = self.platform_version.ok_or(
             VERSION_MISSING
         )?;
-        let platform: UserPlatform = match self.platform
+        let api = match self.api
         {
-            Some(p) => UserPlatform::build_from_platform(&p)
-                .ok_or("Specified platform is not valid")?,
-            None => UserPlatform::get_default()
+            Some(a) => a,
+            None => Api::default(),
         };
+        let platforms: UserPlatform = UserPlatform::build(
+            api,
+            &self.platforms.unwrap_or(Platform::default().to_string())
+        );
 
         let settings: DownloadSettings = DownloadSettings {
-            supplier, platform, version_search: versions
+            supplier, platform: platforms, version_search: versions
         };
 
         let mut opts: OptionsBuilder = OptionsBuilder::new();

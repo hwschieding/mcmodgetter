@@ -182,6 +182,7 @@ pub struct OptionsBuilder
 {
     out_dir: Option<PathBuf>,
     skip_deps: bool,
+    release_only: bool,
 }
 
 impl OptionsBuilder
@@ -189,21 +190,28 @@ impl OptionsBuilder
     pub fn new() -> Self {
         let out_dir = None;
         let skip_deps = false;
-        Self {out_dir, skip_deps}
+        let release_only = false;
+        Self {out_dir, skip_deps, release_only}
     }
-    pub fn set_skip_deps(&mut self, new: bool) -> () {
+    pub fn set_skip_deps(&mut self, new: bool) -> ()
+    {
         self.skip_deps = new;
     }
     pub fn set_out_dir(&mut self, new: PathBuf) -> ()
     {
         self.out_dir = Some(new);
     }
+    pub fn set_release_only(&mut self, new: bool) -> ()
+    {
+        self.release_only = new;
+    }
     pub fn build(self) -> Options
     {
         Options
         {
             out_dir: self.out_dir,
-            skip_deps: self.skip_deps
+            skip_deps: self.skip_deps,
+            release_only: self.release_only,
         }
     }
 }
@@ -247,13 +255,15 @@ impl IdSupplier
 pub struct Options {
     out_dir: Option<PathBuf>,
     skip_deps: bool,
+    release_only: bool,
 }
 
 impl Options {
     pub fn new() -> Self {
         let out_dir = None;
         let skip_deps = false;
-        Options {out_dir, skip_deps}
+        let release_only = false;
+        Options {out_dir, skip_deps, release_only }
     }
     pub fn out_dir(&self) -> Option<&PathBuf> {
         match &self.out_dir
@@ -262,8 +272,13 @@ impl Options {
             None => None
         }
     }
-    pub fn skip_deps(&self) -> bool {
+    pub fn skip_deps(&self) -> bool
+    {
         self.skip_deps
+    }
+    pub fn release_only(&self) -> bool
+    {
+        self.release_only
     }
 }
 
@@ -326,7 +341,8 @@ pub struct ConfigBuilder
     id_mode: Option<IdModeArg>,
     api: Option<Api>,
     output: Option<String>,
-    skip_deps: bool
+    skip_deps: bool,
+    release_only: bool,
 }
 
 impl ConfigBuilder
@@ -340,6 +356,7 @@ impl ConfigBuilder
         let mut api: Option<Api> = None;
         let mut output: Option<String> = None;
         let mut skip_deps: bool = false;
+        let mut release_only: bool = false;
 
         let mut arg_iter = args.iter();
         arg_iter.next();
@@ -382,6 +399,7 @@ impl ConfigBuilder
                     try_get_arg(arg_iter.next(), OUTPUT_MISSING)?
                 ),
                 "--skipdeps" => skip_deps = true,
+                "--releaseonly" => release_only = true,
                 "-help" => mode = Some(ModeArg::Help),
                 "--help" => mode = Some(ModeArg::Help),
                 "-h" => mode = Some(ModeArg::Help),
@@ -391,7 +409,7 @@ impl ConfigBuilder
         
         let mode = mode.ok_or("No command specified")?;
 
-        Ok(Self {mode, platforms, platform_version, id_mode, api, output, skip_deps})
+        Ok(Self {mode, platforms, platform_version, id_mode, api, output, skip_deps, release_only})
     }
 
     fn build_clearmods(self) -> Result<RawConfig, &'static str>
@@ -448,6 +466,7 @@ impl ConfigBuilder
         let mut opts: OptionsBuilder = OptionsBuilder::new();
         if let Some(o) = self.output { opts.set_out_dir(PathBuf::from(o)); }
         opts.set_skip_deps(self.skip_deps);
+        opts.set_release_only(self.release_only);
         let opts = opts.build();
 
         Ok(RawConfig { mode: AppMode::Download(settings), ops: opts })

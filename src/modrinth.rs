@@ -324,7 +324,9 @@ fn deserialize_hex_str_to_bytes<'de, D>(
 #[derive(Serialize)]
 pub struct VersionQuery {
     game_versions: String,
-    loaders: String
+    loaders: String,
+    include_changelog: bool,
+    limit: u32
 }
 
 impl VersionQuery {
@@ -366,7 +368,7 @@ impl VersionQuery {
     pub fn build_query(user_mcvs: &String, user_loader: &Vec<arguments::Platform>) -> VersionQuery {
         let game_versions= Self::build_version_array(user_mcvs);
         let loaders= Self::build_loader_array(user_loader);
-        VersionQuery { game_versions, loaders }
+        VersionQuery { game_versions, loaders, include_changelog: false, limit: 1 }
     }
     pub fn mcvs(&self) -> &str {
         &self.game_versions.as_str()
@@ -548,7 +550,11 @@ pub async fn build_modlist_from_ids<'a>(
         conf.settings().version_search(),
         user_loader
     );
-    let pid_requester = http_handler::QueryRequest::<VersionQuery>::build(client, query);
+    let mut pid_requester = http_handler::QueryRequest::<VersionQuery>::build(client, query);
+    if conf.opts().release_only()
+    {
+        pid_requester.add_query((String::from("version_type"), String::from("release")));
+    }
 
     // Get modlist
     let mut items = collect_mods(&pid_requester, ids).await;

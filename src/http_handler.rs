@@ -119,7 +119,8 @@ pub struct EmptyQuery{}
 pub struct QueryRequest<'a, T>
 {
     client: &'a reqwest::Client,
-    query: T
+    query: T,
+    extra_queries: Vec<(String, String)>,
 }
 
 impl<'a, T> QueryRequest<'a, T>
@@ -127,9 +128,12 @@ where T: Serialize
 {
     pub fn build(client: &'a reqwest::Client, query: T) -> QueryRequest<'a, T>
     {
-        QueryRequest { client, query }
+        QueryRequest { client, query , extra_queries: Vec::new() }
     }
-
+    pub fn add_query(&mut self, q: (String, String)) -> ()
+    {
+        self.extra_queries.push(q);
+    }
 }
 
 impl<'a, T> HttpRequest for QueryRequest<'a, T>
@@ -141,10 +145,18 @@ where
         url: &str
     ) -> reqwest::Result<Response>
     {
-        self.client.get(url)
-            .query(&self.query)
-            .send()
-            .await
+        let mut builder = self.client.get(url)
+            .query(&self.query);
+        for (key, val) in &self.extra_queries
+        {
+            builder = builder.query(&[(key, val)]);
+        }
+
+        // let request = builder.build()?;
+        // println!("Final URL: {}", request.url());
+
+        // self.client.execute(request).await
+        builder.send().await
     }
 }
 

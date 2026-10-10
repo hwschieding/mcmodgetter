@@ -532,22 +532,6 @@ async fn collect_mods<'a>(
     .collect()
 }
 
-// async fn download_mods<'a>(
-//     downloader: &http_handler::Downloader<'a>,
-//     mods: &mut Vec<ModrinthItem>,
-// ) -> ()
-// {
-//     let mut download_futures = Vec::new();
-
-//     for m in mods
-//     {
-//         download_futures.push(m.download(downloader));
-//     }
-
-//     future::join_all(download_futures).await;
-//     ()
-// }
-
 pub async fn build_modlist_from_ids<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: & reqwest::Client,
@@ -582,15 +566,6 @@ pub async fn build_modlist_from_ids<'a>(
 
     Ok(items)
 }
-
-// fn ask_user_to_download(out_dir: &Path) -> io::Result<bool>
-// {
-//     println!("Download all items to directory '{}'? (y/n)", out_dir.display());
-//     let mut user_ans = String::new();
-//     io::stdin().read_line(&mut user_ans)?;
-
-//     Ok(user_ans.trim().to_lowercase() == "y")
-// }
 
 pub async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,

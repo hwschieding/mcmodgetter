@@ -12,8 +12,6 @@ pub mod items;
 pub mod http_handler;
 
 static DEFAULT_OUT_DIR: &'static str = "mods";
-// static PKG_NAME: &'static str = env!("CARGO_PKG_NAME");
-// static CARGO_PKG_VERSION
 
 /*  
     This user agent is only to be used for mcmodgetter and projects affiliated

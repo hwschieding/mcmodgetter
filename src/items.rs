@@ -1,10 +1,15 @@
-use std::{path::{Path, PathBuf}, io, fmt, error};
+use std::{collections::HashSet, error, fmt, io, path::{Path, PathBuf}};
 use futures::future;
 
-use crate::{http_handler, file_parse::{TrackerFile}};
+use crate::{file_parse::TrackerFile, http_handler};
 
 static VERIFICATION_SIG: &'static str = "VERIFY";
 static ERROR_SIG: &'static str = "ERROR";
+
+fn dep_msg(msg: &str) -> String
+{
+    format!("[DEPENDENCY] {}", msg)
+}
 
 pub enum VerificationResult {
     Ok(String),
@@ -76,17 +81,139 @@ impl From<reqwest::Error> for ItemError
     }
 }
 
-pub trait Item {
-    fn download<'a>(
+pub trait Item : Sized
+{
+    type D: Dependency;
+    type V: http_handler::Query;
+
+    #[allow(async_fn_in_trait)]
+    async fn download<'a>(
         &mut self,
         downloader: &http_handler::Downloader<'a>,
-    ) -> impl std::future::Future<Output = ()> + Send;
+    ) -> ();
     fn id(&self) -> &String;
     fn version_id(&self) -> &String;
+    fn version_title(&self) -> &String;
     fn filename(&self) -> &PathBuf;
     fn downloaded(&self) -> bool;
 
     fn item_id(&self) -> &'static str;
+
+    #[allow(async_fn_in_trait)]
+    async fn get_filtered_deps<'a, F>(
+        &self,
+        requester: &DependencyRequester<'a, Self::V>,
+        verify: F,
+    ) -> Vec<Self>
+    where
+        F: Fn(&Self::D) -> bool
+    ;
+}
+
+pub trait Dependency
+{
+    fn project_id(&self) -> Option<&String>;
+}
+
+pub struct DependencyRequester<'a, V>
+where
+    V: http_handler::Query
+{
+    pid_req: &'a http_handler::QueryRequest<'a, V>,
+    vid_req: &'a http_handler::BasicRequest<'a>,
+}
+impl<'a, V> DependencyRequester<'a, V>
+where
+    V: http_handler::Query
+{
+    pub fn new(
+        pid_req: &'a http_handler::QueryRequest<'a, V>,
+        vid_req: &'a http_handler::BasicRequest<'a>
+    ) -> DependencyRequester<'a, V>
+    {
+        DependencyRequester { pid_req, vid_req }
+    }
+
+    pub fn project_id_requester(
+        &self
+    ) -> &'a http_handler::QueryRequest<'a, V>
+    {
+        self.pid_req
+    }
+    pub fn version_id_requester(&self) -> &'a http_handler::BasicRequest<'a>
+    {
+        self.vid_req
+    }
+}
+pub struct DependencyHandler<'a, I>
+    where I: Item
+{
+    modlist: &'a mut Vec<I>,
+    dep_check_stack: Vec<usize>,
+    present_ids: HashSet<String>,
+}
+impl<'a, I> DependencyHandler<'a, I>
+where
+    I: Item
+{
+    pub fn build(modlist: &'a mut Vec<I>) -> Self
+    {
+        let dep_check_stack: Vec<usize> = (0..modlist.len()).collect();
+        let present_ids: HashSet<String> = modlist
+            .iter()
+            .map(|item| item.id().clone())
+            .collect()
+        ;
+        DependencyHandler { modlist, dep_check_stack, present_ids }
+    }
+
+    fn is_dep_present<D>(&self, dep: &D) -> bool
+    where
+        D: Dependency
+    {
+        if let Some(pid) = dep.project_id()
+            && self.present_ids.contains(pid)
+        {
+            return true
+        }
+
+        false
+    }
+
+    async fn try_get_deps(&mut self, requester: &DependencyRequester<'a, I::V>, idx: &usize)
+    {
+        let deps = {
+            match self.modlist.get(*idx)
+            {
+                Some(item) => item.get_filtered_deps(
+                    requester,
+                    |d| { !self.is_dep_present(d) }).await,
+                None => { return () }
+            }
+        };
+
+        for value in deps
+        {
+            if !self.present_ids.contains(value.id().as_str()){
+                println!("{}", dep_msg(&format!("Found dependency: {}", value.version_title())));
+                self.present_ids.insert(value.id().clone());
+
+                self.dep_check_stack.push(self.modlist.len());
+                self.modlist.push(value);
+            }
+        }
+    }
+
+    pub async fn acquire_all_dependencies(
+        &mut self,
+        requester: &DependencyRequester<'a, I::V>
+    ) -> ()
+    {
+        while let Some(idx) = self.dep_check_stack.pop()
+        {
+            self.try_get_deps(requester, &idx).await;
+        }
+    }
 }
 
 pub fn filter_items_by_tracker<T>(

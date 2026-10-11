@@ -113,7 +113,7 @@ fn modrinth_query_building()
         _ => { assert!(false); return; }
     };    
 
-    let v_query = modrinth::VersionQuery::build_query(settings.version_search(), settings.platform().get());
+    let v_query = modrinth::ModrinthVerQuery::build_query(settings.version_search(), settings.platform().get());
     assert_eq!(v_query.loader(), "[\"forge\",\"fabric\"]");
     assert_eq!(v_query.mcvs(), "[\"1.20.1\",\"1.20.2\"]");
 }

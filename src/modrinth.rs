@@ -1,5 +1,4 @@
 use std::{error};
-use std::collections::HashSet;
 use std::path::{PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
@@ -9,8 +8,8 @@ use sha2::{Sha512, Digest};
 use crate::arguments::{DownloadSettings};
 use crate::file_parse::TrackerFile;
 use crate::http_handler::{Downloader};
-use crate::items::{ItemError};
-use crate::{arguments, http_handler::{self, HttpRequest}, items};
+use crate::items::{ItemError, DependencyHandler, DependencyRequester};
+use crate::{arguments, http_handler::{self, HttpRequest}, items::{self, Item}};
 
 static MODRINTH_URL: &'static str = "https://api.modrinth.com/v2";
 static MODRINTH_SIG: &'static str = "MODRINTH";
@@ -30,11 +29,14 @@ pub struct ModrinthItem
     version_title: String,
     version_id: String,
     downloadable: ModrinthFile,
-    dependencies: Vec<RequiredDependency>,
+    dependencies: Vec<ModrinthReqDep>,
     downloaded: bool,
 }
-impl items::Item for ModrinthItem
+impl Item for ModrinthItem
 {
+    type D = ModrinthReqDep;
+    type V = ModrinthVerQuery;
+
     async fn download<'a>(
         &mut self,
         downloader: &Downloader<'a>,
@@ -54,6 +56,10 @@ impl items::Item for ModrinthItem
     {
         &self.version_id
     }
+    fn version_title(&self) -> &String
+    {
+        &self.version_title
+    }
     fn downloaded(&self) -> bool
     {
         self.downloaded
@@ -65,14 +71,33 @@ impl items::Item for ModrinthItem
     fn item_id(&self) -> &'static str {
         MODRINTH_ITEM_ID
     }
+    async fn get_filtered_deps<'a, F>(
+        &self,
+        requester: &DependencyRequester<'a, ModrinthVerQuery>,
+        verify: F,
+    ) -> Vec<Self>
+    where
+        F: Fn(&ModrinthReqDep) -> bool
+    {
+        let mut res = Vec::<Self>::new();
+
+        for dep in self.dependencies
+            .iter()
+            .filter(|d| verify(*d))
+            .collect::<Vec<_>>()
+        {
+            match Self::try_dep(requester, dep).await
+            {
+                Some(m) => { res.push(m); },
+                None => { modrinth_msg(format!("Couldn't acquire dependency for id '{}'", self.id)); }
+            }
+        }
+
+        res
+    }
 }
 impl ModrinthItem
 {
-    pub fn version_title(&self) -> &String
-    {
-        &self.version_title
-    }
-
     fn build_from_version(
         mut version: ModrinthVersion
     ) -> Result<Self, ItemError>
@@ -99,7 +124,7 @@ impl ModrinthItem
     }
     
     pub async fn build_from_id<'a>(
-        version_requester: &http_handler::QueryRequest<'a, VersionQuery>,
+        version_requester: &http_handler::QueryRequest<'a, ModrinthVerQuery>,
         project_id: &str
     ) -> Result<Self, ItemError>
     {
@@ -131,8 +156,8 @@ impl ModrinthItem
     }
 
     async fn try_dep<'a>(
-        requester: &DependencyRequester<'a>,
-        dep: &RequiredDependency
+        requester: &DependencyRequester<'a, ModrinthVerQuery>,
+        dep: &ModrinthReqDep
     ) -> Option<Self>
     {
         if let Some(id) = &dep.version_id
@@ -159,34 +184,10 @@ impl ModrinthItem
 
     async fn _get_dependencies<'a>(
         &self,
-        requester: &DependencyRequester<'a>
+        requester: &DependencyRequester<'a, ModrinthVerQuery>
     ) -> Vec<Self>
     {
         self.get_filtered_deps(requester, |_| { true }).await
-    }
-
-    async fn get_filtered_deps<'a, F>(
-        &self,
-        requester: &DependencyRequester<'a>,
-        verify: F,
-    ) -> Vec<Self>
-    where F: Fn(&RequiredDependency) -> bool
-    {
-        let mut res = Vec::<Self>::new();
-
-        for dep in self.dependencies
-            .iter()
-            .filter(|d| verify(d))
-            .collect::<Vec<_>>()
-        {
-            match Self::try_dep(requester, dep).await
-            {
-                Some(m) => { res.push(m); },
-                None => { modrinth_msg(format!("Couldn't acquire dependency for id '{}'", self.id)); }
-            }
-        }
-
-        res
     }
 }
 
@@ -198,7 +199,7 @@ struct ModrinthVersion
     project_id: String,
     files: Vec<ModrinthFile>,
     #[serde(deserialize_with = "deserialize_only_required_deps")]
-    dependencies: Vec<RequiredDependency>,
+    dependencies: Vec<ModrinthReqDep>,
 }
 
 impl ModrinthVersion
@@ -287,14 +288,14 @@ impl Clone for ModrinthFileHash {
 
 
 #[derive(Serialize)]
-pub struct VersionQuery {
+pub struct ModrinthVerQuery {
     game_versions: String,
     loaders: String,
     include_changelog: bool,
     limit: u32
 }
 
-impl VersionQuery {
+impl ModrinthVerQuery {
     fn array_start_string(prm: &str) -> String
     {
         format!("[\"{}\"", prm)
@@ -333,10 +334,10 @@ impl VersionQuery {
     pub fn build_query(
         user_mcvs: &String,
         user_loader: &Vec<arguments::Platform>
-    ) -> VersionQuery {
+    ) -> ModrinthVerQuery {
         let game_versions= Self::build_version_array(user_mcvs);
         let loaders= Self::build_loader_array(user_loader);
-        VersionQuery {
+        ModrinthVerQuery {
             game_versions,
             loaders,
             include_changelog: false,
@@ -351,21 +352,23 @@ impl VersionQuery {
     }
 }
 
+impl http_handler::Query for ModrinthVerQuery {}
+
 #[derive(Deserialize)]
-pub struct Dependency {
+pub struct ModrinthDependency {
     version_id: Option<String>,
     project_id: Option<String>,
     dependency_type: String
 }
 
-pub struct RequiredDependency {
+pub struct ModrinthReqDep {
     version_id: Option<String>,
     project_id: Option<String>,
 }
 
-impl RequiredDependency {
-    pub fn from_dep(dep: Dependency) -> Self {
-        RequiredDependency {
+impl ModrinthReqDep {
+    pub fn from_dep(dep: ModrinthDependency) -> Self {
+        ModrinthReqDep {
             version_id: dep.version_id,
             project_id: dep.project_id
         }
@@ -373,14 +376,22 @@ impl RequiredDependency {
     pub fn version_id(&self) -> &Option<String> {
         &self.version_id
     }
-    pub fn project_id(&self) -> &Option<String> {
-        &self.project_id
+}
+
+impl items::Dependency for ModrinthReqDep
+{
+    fn project_id(&self) -> Option<&String> {
+        match &self.project_id
+        {
+            Some(v) => Some(v),
+            None => None
+        }
     }
 }
 
-impl Clone for RequiredDependency {
+impl Clone for ModrinthReqDep {
     fn clone(&self) -> Self {
-        RequiredDependency {
+        ModrinthReqDep {
             version_id: self.version_id.clone(),
             project_id: self.project_id.clone(),
         }
@@ -389,14 +400,14 @@ impl Clone for RequiredDependency {
 
 fn deserialize_only_required_deps<'de, D>(
     deserializer: D
-) -> Result<Vec<RequiredDependency>, D::Error> 
+) -> Result<Vec<ModrinthReqDep>, D::Error> 
     where D: Deserializer<'de>
 {
-    let deps: Vec<Dependency> = Deserialize::deserialize(deserializer)?;
+    let deps: Vec<ModrinthDependency> = Deserialize::deserialize(deserializer)?;
     Ok (deps.into_iter()
         .filter_map(|d|
             if d.dependency_type == "required" {
-                Some(RequiredDependency::from_dep(d))
+                Some(ModrinthReqDep::from_dep(d))
             } else {
                 None
             }
@@ -405,101 +416,8 @@ fn deserialize_only_required_deps<'de, D>(
     )
 }
 
-struct DependencyRequester<'a>
-{
-    pid_req: &'a http_handler::QueryRequest<'a, VersionQuery>,
-    vid_req: &'a http_handler::BasicRequest<'a>,
-}
-impl<'a> DependencyRequester<'a>
-{
-    pub fn new(
-        pid_req: &'a http_handler::QueryRequest<'a, VersionQuery>,
-        vid_req: &'a http_handler::BasicRequest<'a>
-    ) -> DependencyRequester<'a>
-    {
-        DependencyRequester { pid_req, vid_req }
-    }
-
-    pub fn project_id_requester(
-        &self
-    ) -> &'a http_handler::QueryRequest<'a, VersionQuery>
-    {
-        self.pid_req
-    }
-    pub fn version_id_requester(&self) -> &'a http_handler::BasicRequest<'a>
-    {
-        self.vid_req
-    }
-}
-
-struct DependencyHandler<'a>
-{
-    modlist: &'a mut Vec<ModrinthItem>,
-    dep_check_stack: Vec<usize>,
-    present_ids: HashSet<String>,
-}
-impl<'a> DependencyHandler<'a>
-{
-    pub fn build(modlist: &'a mut Vec<ModrinthItem>) -> Self
-    {
-        let dep_check_stack: Vec<usize> = (0..modlist.len()).collect();
-        let present_ids: HashSet<String> = modlist
-            .iter()
-            .map(|item| item.id.clone())
-            .collect()
-        ;
-        DependencyHandler { modlist, dep_check_stack, present_ids }
-    }
-
-    fn is_dep_present(&self, dep: &RequiredDependency) -> bool
-    {
-        if let Some(pid) = dep.project_id()
-            && self.present_ids.contains(pid)
-        {
-            return true
-        }
-
-        false
-    }
-
-    async fn try_get_deps(&mut self, requester: &DependencyRequester<'a>, idx: &usize)
-    {
-        let deps = {
-            match self.modlist.get(*idx)
-            {
-                Some(item) => item.get_filtered_deps(
-                    requester,
-                    |d| { !self.is_dep_present(d) }).await,
-                None => { return () }
-            }
-        };
-
-        for value in deps
-        {
-            if !self.present_ids.contains(&value.id){
-                modrinth_msg(format!("Found dependency: {}", value.version_title()));
-                self.present_ids.insert(value.id.clone());
-
-                self.dep_check_stack.push(self.modlist.len());
-                self.modlist.push(value);
-            }
-        }
-    }
-
-    pub async fn acquire_all_dependencies(
-        &mut self,
-        requester: &DependencyRequester<'a>
-    ) -> ()
-    {
-        while let Some(idx) = self.dep_check_stack.pop()
-        {
-            self.try_get_deps(requester, &idx).await;
-        }
-    }
-}
-
 async fn collect_mods<'a>(
-    requester: &http_handler::QueryRequest<'a, VersionQuery>,
+    requester: &http_handler::QueryRequest<'a, ModrinthVerQuery>,
     ids: &Vec<String>,
 ) -> Vec<ModrinthItem>
 {
@@ -531,12 +449,12 @@ pub async fn build_modlist_from_ids<'a>(
     ids: &Vec<String>,
 ) -> Result<Vec<ModrinthItem>, Box<dyn error::Error>>
 {
-    let query = VersionQuery::build_query(
+    let query = ModrinthVerQuery::build_query(
         conf.settings().version_search(),
         conf.settings().platform().get(),
     );
 
-    let mut pid_requester = http_handler::QueryRequest::<VersionQuery>::build(
+    let mut pid_requester = http_handler::QueryRequest::<ModrinthVerQuery>::build(
         client,
         query
     );

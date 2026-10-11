@@ -116,6 +116,8 @@ impl<'a> HttpRequest for BasicRequest<'a>
 #[derive(Serialize)]
 pub struct EmptyQuery{}
 
+pub trait Query {}
+
 pub struct QueryRequest<'a, T>
 {
     client: &'a reqwest::Client,

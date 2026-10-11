@@ -15,11 +15,17 @@ pub struct HangarItem{
     version_title: String,
     version_id: String,
     downloadable: HangarFile,
-    dependencies: Vec<RequiredDependency>,
+    dependencies: Vec<HangarReqDep>,
     downloaded: bool,
 }
 impl items::Item for HangarItem
 {
+    type D = HangarReqDep;
+    type V = HangarVerQuery;
+
+    fn version_title(&self) -> &String {
+        &self.version_title
+    }
     fn filename(&self) -> &PathBuf {
         self.downloadable.filename()
     }
@@ -46,6 +52,16 @@ impl items::Item for HangarItem
             Err(err) => println!("{err}")
         }
     }
+    async fn get_filtered_deps<'a, F>(
+        &self,
+        requester: &items::DependencyRequester<'a, Self::V>,
+        verify: F,
+    ) -> Vec<Self>
+    where
+        F: Fn(&Self::D) -> bool
+    {
+        todo!()
+    }
 }
 
 impl HangarItem
@@ -56,7 +72,7 @@ impl HangarItem
     }
 
     async fn build_from_id<'a>(
-        v_requester: &http_handler::QueryRequest<'a, VersionQuery>,
+        v_requester: &http_handler::QueryRequest<'a, HangarVerQuery>,
         project_id: &str
     ) -> Result<Self, ItemError>
     {
@@ -91,23 +107,23 @@ struct HangarVersion
     name: String,
     downloads: HashMap<String, HangarFile>,
     #[serde(deserialize_with="deserialize_req_deps")]
-    plugin_dependencies: HashMap<String, Vec<RequiredDependency>>
+    plugin_dependencies: HashMap<String, Vec<HangarReqDep>>
 
 }
 
 fn deserialize_req_deps<'de, D>(
     deserializer: D
-) -> Result<HashMap<String, Vec<RequiredDependency>>, D::Error> 
+) -> Result<HashMap<String, Vec<HangarReqDep>>, D::Error> 
     where D: Deserializer<'de>
 {   
     let deps: HashMap<String, Vec<HangarDependency>> = Deserialize::deserialize(deserializer)?;
-    let mut res = HashMap::<String, Vec<RequiredDependency>>::new();
+    let mut res = HashMap::<String, Vec<HangarReqDep>>::new();
     for (key, value) in deps
     {
         let req_deps = value
             .into_iter()
             .filter_map(|d| {
-                if d.required { Some(RequiredDependency::from_dep(d)) }
+                if d.required { Some(HangarReqDep::from_dep(d)) }
                 else { None } 
             })
             .collect()
@@ -169,35 +185,41 @@ impl HangarFileInfo
 #[serde(rename_all="camelCase")]
 struct HangarDependency
 {
-    name: String,
     project_id: u32,
     required: bool,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all="camelCase")]
-struct RequiredDependency
+pub struct HangarReqDep
 {
-    name: String,
-    project_id: u32
+    project_id: String
 }
 
-impl RequiredDependency
+impl HangarReqDep
 {
     fn from_dep(d: HangarDependency) -> Self
     {
-        RequiredDependency {
-            name: d.name,
-            project_id: d.project_id,
+        HangarReqDep {
+            project_id: d.project_id.to_string(),
         }
+    }
+}
+
+impl items::Dependency for HangarReqDep
+{
+    fn project_id(&self) -> Option<&String> {
+        Some(&self.project_id)
     }
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all="camelCase")]
-struct VersionQuery
+pub struct HangarVerQuery
 {
     platform: String,
     platform_version: String,
     limit: u32,
 }
+
+impl http_handler::Query for HangarVerQuery {}

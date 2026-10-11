@@ -34,8 +34,8 @@ pub struct ModrinthItem
 }
 impl Item for ModrinthItem
 {
-    type D = ModrinthReqDep;
-    type V = ModrinthVerQuery;
+    type Dep = ModrinthReqDep;
+    type VersionQuery = ModrinthVerQuery;
 
     async fn download<'a>(
         &mut self,

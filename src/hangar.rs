@@ -3,25 +3,31 @@ use std::{collections::HashMap, path::{PathBuf}};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{digest::Output, Digest, Sha256};
 
-use crate::items::{self, ItemError};
+use crate::{arguments, items::{self, Dependency, DependencyRequester, ItemError}};
 use crate::http_handler::{self, HttpRequest};
 
 static HANGAR_URL: &'static str = "https://hangar.papermc.io/api/v1";
 static HANGAR_SIG: &'static str = "HANGAR";
 static HANGAR_ITEM_ID: &'static str = "HA";
 
+fn hangar_msg(msg: &str) -> String
+{
+    format!("[{}] {}", HANGAR_SIG, msg)
+}
+
 pub struct HangarItem{
     id: String,
     version_title: String,
     version_id: String,
+    platform: arguments::Platform,
     downloadable: HangarFile,
     dependencies: Vec<HangarReqDep>,
     downloaded: bool,
 }
 impl items::Item for HangarItem
 {
-    type D = HangarReqDep;
-    type V = HangarVerQuery;
+    type Dep = HangarReqDep;
+    type VersionQuery = HangarVerQuery;
 
     fn version_title(&self) -> &String {
         &self.version_title
@@ -54,26 +60,69 @@ impl items::Item for HangarItem
     }
     async fn get_filtered_deps<'a, F>(
         &self,
-        requester: &items::DependencyRequester<'a, Self::V>,
+        requester: &items::DependencyRequester<'a, HangarVerQuery>,
         verify: F,
     ) -> Vec<Self>
     where
-        F: Fn(&Self::D) -> bool
+        F: Fn(&HangarReqDep) -> bool
     {
-        todo!()
+        let mut res = Vec::<Self>::new();
+        for dep in self.dependencies.iter()
+            .filter(|d| { verify(d) })
+            .collect::<Vec<_>>()
+        {
+            match Self::try_dep(requester, dep, &self.platform).await
+            {
+                Some(d) => res.push(d),
+                None => {
+                    println!("{}", hangar_msg(&format!(
+                        "Couldn't acquire dependency for id '{}'", self.id
+                    )))
+                }
+            }
+        }
+        
+        res
     }
 }
 
 impl HangarItem
 {
-    async fn build_from_version(v: HangarVersion) -> Result<Self, ItemError>
+    async fn build_from_version(
+        mut v: HangarVersion,
+        platform: &arguments::Platform
+    ) -> Result<Self, ItemError>
     {
-        todo!()
+        let upper_platform_str = &platform.to_str().to_uppercase();
+
+        let downloadable = v.downloads
+            .remove(upper_platform_str)
+            .ok_or(ItemError::NoFile(format!(
+                "Unable to acquire version file for id '{}'", v.id
+            )))?
+        ;
+        let dependencies = match v.plugin_dependencies
+            .remove(upper_platform_str)
+        {
+            Some(d) => d,
+            None => Vec::new()
+        };
+
+        Ok(Self {
+            id: v.project_id.to_string(),
+            version_title: v.name,
+            version_id: v.id.to_string(),
+            platform: platform.clone(),
+            downloadable,
+            dependencies,
+            downloaded: false
+        })
     }
 
     async fn build_from_id<'a>(
         v_requester: &http_handler::QueryRequest<'a, HangarVerQuery>,
-        project_id: &str
+        project_id: &str,
+        platform: &arguments::Platform
     ) -> Result<Self, ItemError>
     {
         let url  = format!("{}/projects/{}/versions", HANGAR_URL, project_id);
@@ -87,7 +136,32 @@ impl HangarItem
             return Err(ItemError::NoVersion(format!("No version available for id '{project_id}'")));
         }
 
-        Self::build_from_version(response.swap_remove(0)).await
+        Self::build_from_version(response.swap_remove(0), platform).await
+    }
+
+    async fn try_dep<'a>(
+        requester: &DependencyRequester<'a, HangarVerQuery>,
+        dep: &HangarReqDep,
+        platform: &arguments::Platform
+    ) -> Option<Self>
+    {
+        let result = match dep.project_id()
+        {
+            Some(id) => {
+                Self::build_from_id(
+                    requester.project_id_requester(),
+                    id,
+                    platform
+                ).await
+            }
+            None => { return None }
+        };
+
+        match result
+        {
+            Ok(i) => Some(i),
+            Err(_) => None
+        }
     }
 }
 

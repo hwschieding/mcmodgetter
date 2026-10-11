@@ -83,8 +83,8 @@ impl From<reqwest::Error> for ItemError
 
 pub trait Item : Sized
 {
-    type D: Dependency;
-    type V: http_handler::Query;
+    type Dep: Dependency;
+    type VersionQuery: http_handler::Query;
 
     #[allow(async_fn_in_trait)]
     async fn download<'a>(
@@ -102,11 +102,11 @@ pub trait Item : Sized
     #[allow(async_fn_in_trait)]
     async fn get_filtered_deps<'a, F>(
         &self,
-        requester: &DependencyRequester<'a, Self::V>,
+        requester: &DependencyRequester<'a, Self::VersionQuery>,
         verify: F,
     ) -> Vec<Self>
     where
-        F: Fn(&Self::D) -> bool
+        F: Fn(&Self::Dep) -> bool
     ;
 }
 
@@ -167,9 +167,7 @@ where
         DependencyHandler { modlist, dep_check_stack, present_ids }
     }
 
-    fn is_dep_present<D>(&self, dep: &D) -> bool
-    where
-        D: Dependency
+    fn is_dep_present(&self, dep: &I::Dep) -> bool
     {
         if let Some(pid) = dep.project_id()
             && self.present_ids.contains(pid)
@@ -180,7 +178,7 @@ where
         false
     }
 
-    async fn try_get_deps(&mut self, requester: &DependencyRequester<'a, I::V>, idx: &usize)
+    async fn try_get_deps(&mut self, requester: &DependencyRequester<'a, I::VersionQuery>, idx: &usize)
     {
         let deps = {
             match self.modlist.get(*idx)
@@ -206,7 +204,7 @@ where
 
     pub async fn acquire_all_dependencies(
         &mut self,
-        requester: &DependencyRequester<'a, I::V>
+        requester: &DependencyRequester<'a, I::VersionQuery>
     ) -> ()
     {
         while let Some(idx) = self.dep_check_stack.pop()

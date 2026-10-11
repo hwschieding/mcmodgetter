@@ -107,7 +107,7 @@ impl Api
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Platform
 {
     Fabric,

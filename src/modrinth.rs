@@ -1,15 +1,15 @@
-use std::{error, fmt};
+use std::{error};
 use std::collections::HashSet;
 use std::path::{PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
-use serde::de::{Error};
 use sha2::digest::Output;
 use sha2::{Sha512, Digest};
 
 use crate::arguments::{DownloadSettings};
 use crate::file_parse::TrackerFile;
 use crate::http_handler::{Downloader};
+use crate::items::{ItemError};
 use crate::{arguments, http_handler::{self, HttpRequest}, items};
 
 static MODRINTH_URL: &'static str = "https://api.modrinth.com/v2";
@@ -22,56 +22,7 @@ fn modrinth_msg(s: String) -> ()
     println!("[{}] {}", MODRINTH_SIG, s)
 }
 
-#[derive(Debug)]
-pub enum ModrinthItemError
-{
-    BadRequest(reqwest::Error),
-    NoVersion(String),
-    NoFile(String),
-}
-impl ModrinthItemError
-{
-    fn err_str(s: &str) -> String
-    {
-        format!("[{}/ERROR] {}", MODRINTH_SIG, s)
-    }
-}
 
-impl fmt::Display for ModrinthItemError
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self
-        {
-            Self::BadRequest(err) => write!(
-                f, "{}{}", Self::err_str("Bad request: "), err
-            ),
-            Self::NoVersion(msg) => write!(
-                f, "{}{}", Self::err_str("No version: "), msg
-            ),
-            Self::NoFile(msg) => write!(
-                f, "{}{}", Self::err_str("No file: "), msg
-            )
-        }
-    }
-}
-
-impl error::Error for ModrinthItemError
-{
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self
-        {
-            Self::BadRequest(err) => Some(err),
-            _ => None
-        }
-    }
-}
-
-impl From<reqwest::Error> for ModrinthItemError
-{
-    fn from(value: reqwest::Error) -> Self {
-        Self::BadRequest(value)
-    }
-}
 
 pub struct ModrinthItem
 {
@@ -124,11 +75,11 @@ impl ModrinthItem
 
     fn build_from_version(
         mut version: ModrinthVersion
-    ) -> Result<Self, ModrinthItemError>
+    ) -> Result<Self, ItemError>
     {
         if version.files.len() == 0
         {
-            return Err(ModrinthItemError::NoFile(String::from("No files for this version")));
+            return Err(ItemError::NoFile(String::from("No files for this version")));
         }
 
         let downloadable: ModrinthFile = match version.get_primary_file()
@@ -150,7 +101,7 @@ impl ModrinthItem
     pub async fn build_from_id<'a>(
         version_requester: &http_handler::QueryRequest<'a, VersionQuery>,
         project_id: &str
-    ) -> Result<Self, ModrinthItemError>
+    ) -> Result<Self, ItemError>
     {
         let url = format!("{}/project/{}/version", MODRINTH_URL, project_id);
 
@@ -160,7 +111,7 @@ impl ModrinthItem
 
         if versions.len() == 0
         {
-            return Err(ModrinthItemError::NoVersion(format!("No version for id '{}'", project_id)));
+            return Err(ItemError::NoVersion(format!("No version for id '{}'", project_id)));
         }
 
         let selected_version = versions.swap_remove(0);
@@ -171,7 +122,7 @@ impl ModrinthItem
     async fn build_from_version_id<'a>(
         direct_requester: &http_handler::BasicRequest<'a>,
         version_id: &str
-    ) -> Result<Self, ModrinthItemError>
+    ) -> Result<Self, ItemError>
     {
         let url = format!("{}/version/{}", MODRINTH_URL, version_id);
         Self::build_from_version(
@@ -316,7 +267,7 @@ impl Clone for ModrinthFile {
 
 #[derive(Deserialize)]
 struct ModrinthFileHash {
-    #[serde(deserialize_with = "deserialize_hex_str_to_bytes")]
+    #[serde(deserialize_with = "http_handler::deserialize_hex_str_to_bytes")]
     sha512: Vec<u8>
 }
 
@@ -333,14 +284,7 @@ impl Clone for ModrinthFileHash {
         }
     }
 }
-fn deserialize_hex_str_to_bytes<'de, D>(
-    deserializer: D
-) -> Result<Vec<u8>, D::Error>
-    where D: Deserializer<'de>
-{
-    let hex_data: String = Deserialize::deserialize(deserializer)?;
-    hex::decode(hex_data).map_err(D::Error::custom)
-}
+
 
 #[derive(Serialize)]
 pub struct VersionQuery {

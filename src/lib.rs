@@ -6,6 +6,7 @@ use crate::arguments::{DownloadSettings, ReadModsSettings};
 #[cfg(test)]
 mod tests;
 pub mod modrinth;
+pub mod hangar;
 pub mod arguments;
 pub mod file_parse;
 pub mod items;

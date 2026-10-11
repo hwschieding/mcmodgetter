@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, io};
+use std::{path::{Path, PathBuf}, io, fmt, error};
 use futures::future;
 
 use crate::{http_handler, file_parse::{TrackerFile}};
@@ -29,6 +29,50 @@ impl VerificationResult {
         } else {
             false
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum ItemError
+{
+    BadRequest(reqwest::Error),
+    NoVersion(String),
+    NoFile(String),
+}
+
+impl fmt::Display for ItemError
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self
+        {
+            Self::BadRequest(err) => write!(
+                f, "Bad request: {}", err
+            ),
+            Self::NoVersion(msg) => write!(
+                f, "No version: {}", msg
+            ),
+            Self::NoFile(msg) => write!(
+                f, "No file: {}", msg
+            )
+        }
+    }
+}
+
+impl error::Error for ItemError
+{
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self
+        {
+            Self::BadRequest(err) => Some(err),
+            _ => None
+        }
+    }
+}
+
+impl From<reqwest::Error> for ItemError
+{
+    fn from(value: reqwest::Error) -> Self {
+        Self::BadRequest(value)
     }
 }
 

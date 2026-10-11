@@ -1,7 +1,7 @@
 use std::{error, fmt, fs, io::{self, Write}, path::{Path, PathBuf}};
 
 use reqwest::Response;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Deserializer, Serialize, de::{DeserializeOwned, Error}};
 
 use crate::http_handler;
 
@@ -251,6 +251,15 @@ impl<'a> Downloader<'a>
             ))
         }
     }
+}
+
+pub fn deserialize_hex_str_to_bytes<'de, D>(
+    deserializer: D
+) -> Result<Vec<u8>, D::Error>
+    where D: Deserializer<'de>
+{
+    let hex_data: String = Deserialize::deserialize(deserializer)?;
+    hex::decode(hex_data).map_err(D::Error::custom)
 }
 
 fn try_path_join(base: &PathBuf, new_comp: &Path) -> Option<PathBuf>

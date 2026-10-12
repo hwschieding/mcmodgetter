@@ -292,7 +292,8 @@ pub struct ModrinthVerQuery {
     game_versions: String,
     loaders: String,
     include_changelog: bool,
-    limit: u32
+    limit: u32,
+    version_type: Option<String>,
 }
 
 impl ModrinthVerQuery {
@@ -306,7 +307,8 @@ impl ModrinthVerQuery {
             game_versions,
             loaders,
             include_changelog: false,
-            limit: 1
+            limit: 1,
+            version_type: None,
         }
     }
     pub fn mcvs(&self) -> &str {
@@ -314,6 +316,10 @@ impl ModrinthVerQuery {
     }
     pub fn loader(&self) -> &str {
         &self.loaders.as_str()
+    }
+    pub fn set_version_type(&mut self, new: Option<String>) -> ()
+    {
+        self.version_type = new;
     }
 }
 
@@ -414,23 +420,20 @@ pub async fn build_modlist_from_ids<'a>(
     ids: &Vec<String>,
 ) -> Result<Vec<ModrinthItem>, Box<dyn error::Error>>
 {
-    let query = ModrinthVerQuery::build_query(
+    let mut query = ModrinthVerQuery::build_query(
         conf.settings().version_search(),
         conf.settings().platform().get(),
     );
 
-    let mut pid_requester = http_handler::QueryRequest::<ModrinthVerQuery>::build(
+    if conf.opts().release_only()
+    {
+        query.set_version_type(Some(String::from("release")));
+    }
+
+    let pid_requester = http_handler::QueryRequest::<ModrinthVerQuery>::build(
         client,
         query
     );
-    
-    if conf.opts().release_only()
-    {
-        pid_requester.add_query(http_handler::QueryParam::new(
-            "version_type",
-            "release"
-        ));
-    }
 
     // Get modlist
     let mut items = collect_mods(&pid_requester, ids).await;

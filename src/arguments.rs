@@ -176,6 +176,10 @@ impl UserPlatform {
     {
         &self.api
     }
+    pub fn try_get_top(&self) -> Option<&Platform>
+    {
+        self.platforms.get(0)
+    }
 }
 
 pub struct OptionsBuilder
@@ -432,7 +436,33 @@ impl ConfigBuilder
 
     fn build_checkmods(self) -> Result<RawConfig, &'static str>
     {
-        self.build_download()
+        let supplier = IdSupplier::from_id_mode(
+            self.id_mode.ok_or(ID_MISSING)?
+        );
+        let versions = self.platform_version.ok_or(
+            VERSION_MISSING
+        )?;
+        let api = match self.api
+        {
+            Some(a) => a,
+            None => Api::default(),
+        };
+        let platforms: UserPlatform = UserPlatform::build(
+            api,
+            &self.platforms.unwrap_or(Platform::default().to_string())
+        );
+
+        let settings: DownloadSettings = DownloadSettings {
+            supplier, platform: platforms, version_search: versions
+        };
+
+        let mut opts: OptionsBuilder = OptionsBuilder::new();
+        if let Some(o) = self.output { opts.set_out_dir(PathBuf::from(o)); }
+        opts.set_skip_deps(self.skip_deps);
+        opts.set_release_only(self.release_only);
+        let opts = opts.build();
+
+        Ok(RawConfig { mode: AppMode::CheckMods(settings), ops: opts })
     }
 
     fn build_download(self) -> Result<RawConfig, &'static str>

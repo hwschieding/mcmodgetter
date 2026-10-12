@@ -1,10 +1,13 @@
-use std::{collections::HashMap, path::{PathBuf}};
+use std::{collections::HashMap, error, path::PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{digest::Output, Digest, Sha256};
+use futures::future;
 
-use crate::{arguments, items::{self, Dependency, DependencyRequester, ItemError}};
-use crate::http_handler::{self, HttpRequest};
+use crate::http_handler::{self, HttpRequest, BasicRequest, QueryRequest};
+use crate::arguments::{self, DownloadSettings};
+use crate::items::{self, Dependency, DependencyHandler, DependencyRequester, Item, ItemError};
+use crate::file_parse::TrackerFile;
 
 static HANGAR_URL: &'static str = "https://hangar.papermc.io/api/v1";
 static HANGAR_SIG: &'static str = "HANGAR";
@@ -15,6 +18,7 @@ fn hangar_msg(msg: &str) -> String
     format!("[{}] {}", HANGAR_SIG, msg)
 }
 
+#[derive(Debug)]
 pub struct HangarItem{
     id: String,
     version_title: String,
@@ -95,12 +99,12 @@ impl HangarItem
     {
         let upper_platform_str = &platform.to_str().to_uppercase();
 
-        let downloadable = v.downloads
+        let downloadable = HangarFile::from_response(v.downloads
             .remove(upper_platform_str)
             .ok_or(ItemError::NoFile(format!(
                 "Unable to acquire version file for id '{}'", v.id
             )))?
-        ;
+        )?;
         let dependencies = match v.plugin_dependencies
             .remove(upper_platform_str)
         {
@@ -179,7 +183,7 @@ struct HangarVersion
     id: u32,
     project_id: u32,
     name: String,
-    downloads: HashMap<String, HangarFile>,
+    downloads: HashMap<String, HangarFileResponse>,
     #[serde(deserialize_with="deserialize_req_deps")]
     plugin_dependencies: HashMap<String, Vec<HangarReqDep>>
 
@@ -210,29 +214,15 @@ fn deserialize_req_deps<'de, D>(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all="camelCase")]
-struct HangarFile
+struct HangarFileResponse
 {
-    download_url: String,
-    file_info: HangarFileInfo,
+    download_url: Option<String>,
+    file_info: Option<HangarFileInfo>,
 }
 
-impl HangarFile
+impl HangarFileResponse
 {
-    pub async fn download<'a>(
-        &self,
-        downloader: &http_handler::Downloader<'a>,
-    ) -> Result<(), http_handler::DownloadError>
-    {
-        downloader.verify_and_download(
-            &self.download_url, 
-            &self.file_info.name,
-            |b| { self.file_info.verify_hash(&Sha256::digest(b))}
-        ).await
-    }
-    fn filename(&self) -> &PathBuf
-    {
-        self.file_info.name()
-    }
+    
 }
 
 #[derive(Debug, Deserialize)]
@@ -252,6 +242,43 @@ impl HangarFileInfo
     fn verify_hash(&self, other: &Output<Sha256>) -> bool
     {
         self.sha256_hash.as_slice() == other.as_slice()
+    }
+}
+
+#[derive(Debug)]
+struct HangarFile
+{
+    url: String,
+    info: HangarFileInfo,
+}
+
+impl HangarFile
+{
+    pub fn from_response(response: HangarFileResponse) -> Result<Self, ItemError>
+    {
+        let url = response.download_url.ok_or(ItemError::NoFile(
+            String::from("No direct download link available")
+        ))?;
+        let info = response.file_info.ok_or(ItemError::NoFile(
+            String::from("File information could not be acquired")
+        ))?;
+
+        Ok(Self { url, info })
+    }
+    pub async fn download<'a>(
+        &self,
+        downloader: &http_handler::Downloader<'a>,
+    ) -> Result<(), http_handler::DownloadError>
+    {
+        downloader.verify_and_download(
+            &self.url,
+            &self.info.name(),
+            |b| { self.info.verify_hash(&Sha256::digest(b))}
+        ).await
+    }
+    fn filename(&self) -> &PathBuf
+    {
+        self.info.name()
     }
 }
 
@@ -308,12 +335,12 @@ impl HangarVerQuery
         }
     }
 
-    fn get_plaform(p: arguments::Platform) -> String
+    fn get_plaform(p: &arguments::Platform) -> String
     {
         p.to_string()
     }
 
-    fn build_query(user_version: &String, user_platform: arguments::Platform) -> Self
+    fn build_query(user_version: &String, user_platform: &arguments::Platform) -> Self
     {
         Self {
             platform: Self::get_plaform(user_platform),
@@ -322,6 +349,134 @@ impl HangarVerQuery
             channel: None,
         }
     }
+
+    fn set_channel(&mut self, new: Option<String>) -> ()
+    {
+        self.channel = new;
+    }
 }
 
 impl http_handler::Query for HangarVerQuery {}
+
+async fn collect_plugins<'a>(
+    requester: &QueryRequest<'a, HangarVerQuery>,
+    ids: &Vec<String>,
+    platform: &arguments::Platform,
+) -> Vec<HangarItem>
+{
+    fn err_or_return(res: Result<HangarItem, ItemError>) -> Option<HangarItem>
+    {
+        match res
+        {
+            Ok(i) => {
+                println!("{}", hangar_msg(&format!(
+                    "Found version '{}'", i.version_title()
+                )));
+                Some(i)
+            }
+            Err(e) => { println!("{e}"); None}
+        }
+    }
+
+    let mut plugins = Vec::new();
+    for id in ids
+    {
+        plugins.push(HangarItem::build_from_id(requester, id, platform))
+    }
+    future::join_all(plugins).await
+        .into_iter()
+        .filter_map(|result|
+        {
+            err_or_return(result)
+        })
+        .collect::<Vec<_>>()
+}
+
+async fn plugin_list_from_ids<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: &reqwest::Client,
+    ids: &Vec<String>,
+) -> Result<Vec<HangarItem>, Box<dyn error::Error>>
+{
+    let platform = conf.settings()
+        .platform()
+        .try_get_top()
+        .ok_or("Plugin platform must be specified for Hangar queries")?
+    ;
+
+    let mut query = HangarVerQuery::build_query(
+        conf.settings().version_search(),
+        platform
+    );
+
+    if conf.opts().release_only()
+    {
+        query.set_channel(Some(String::from("release")));
+    }
+
+    let pid_requester = QueryRequest::build(client, query);
+
+    let mut plugins = collect_plugins(&pid_requester, ids, platform).await;
+
+    if conf.opts().skip_deps()
+    {
+        return Ok(plugins)
+    }
+
+    let vid_requester = BasicRequest::build(client);
+    let dep_requester = DependencyRequester::new(
+        &pid_requester,
+        &vid_requester,
+    );
+
+    let mut dep_handler = DependencyHandler::build(&mut plugins);
+    dep_handler.acquire_all_dependencies(&dep_requester).await;
+
+    Ok(plugins)
+}
+
+pub async fn download_from_id_list<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    let mut items = plugin_list_from_ids(conf, client, ids).await?;
+
+    let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
+    items = items::filter_items_by_tracker(items, &tracker);
+
+    if !items::ask_user_to_download(&out_dir)?
+    {
+        return Ok(())
+    }
+
+    println!("{}", hangar_msg("Downloading..."));
+
+    // Download
+    let downloader = http_handler::Downloader::build(client, out_dir);
+    items::download_items(&downloader, &mut items).await;
+
+    tracker.update(items);
+    tracker.write_csv();
+
+    println!("{}", hangar_msg("Download finished"));
+
+    Ok(())
+}
+
+pub async fn verify_ids_from_list<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: & reqwest::Client,
+    ids: &Vec<String>,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>> {
+    let items = plugin_list_from_ids(conf, client, ids).await?;
+
+    let tracker: TrackerFile = TrackerFile::build(&out_dir)?;
+
+    items::filter_items_by_tracker(items, &tracker);
+
+    Ok(())
+}

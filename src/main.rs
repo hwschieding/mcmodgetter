@@ -35,6 +35,7 @@ async fn run(raw_conf: RawConfig) -> Result<(), Box<dyn Error>> {
     let out_dir = get_out_dir(raw_conf.options().out_dir())?;
     match raw_conf.mode() {
         AppMode::Download(settings) => {
+            println!("Download command used");
             create_out_dir(&out_dir)?;
             let conf = arguments::Config::build(&settings, raw_conf.options());
             operation_download(&conf, &client, out_dir).await?

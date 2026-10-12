@@ -60,16 +60,74 @@ pub async fn operation_download<'a>(
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
-    match conf.settings().supplier()
+    match conf.settings().platform().api()
     {
-        arguments::IdSupplier::File(file) => 
-            id_from_file(conf, client, get_ids(file)?, out_dir).await,
-        arguments::IdSupplier::Id(id) =>
-            single_id(conf, client, id, out_dir).await
+        arguments::Api::Hangar => hangar_download(conf, client, out_dir).await,
+        arguments::Api::Modrinth => modrinth_download(conf, client, out_dir).await,
     }
 }
 
+async fn modrinth_download<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: &reqwest::Client,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    match conf.settings().supplier()
+    {
+        arguments::IdSupplier::File(file) => 
+        {
+            if let Some(ids) = get_ids(file)?.modrinth()
+            {
+                modrinth::download_from_id_list(conf, client, ids, out_dir).await?
+            };
+        },
+            // id_from_file(conf, client, get_ids(file)?, out_dir).await,
+        arguments::IdSupplier::Id(id) =>
+        {
+            modrinth::download_from_id(conf, client, id, out_dir).await?
+        }
+            // single_id(conf, client, id, out_dir).await
+    };
+
+    Ok(())
+}
+
+async fn hangar_download<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: &reqwest::Client,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    match conf.settings().supplier()
+    {
+        arguments::IdSupplier::File(file) => 
+        {
+            if let Some(ids) = get_ids(file)?.hangar()
+            {
+                hangar::download_from_id_list(conf, client, ids, out_dir).await?
+            };
+        },
+        arguments::IdSupplier::Id(_id) =>
+            ()
+    };
+    Ok(())
+}
+
 pub async fn operation_verify<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: &reqwest::Client,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    match conf.settings().platform().api()
+    {
+        arguments::Api::Modrinth => modrinth_verify(conf, client, out_dir).await,
+        arguments::Api::Hangar => hangar_verify(conf, client, out_dir).await,
+    }
+}
+
+async fn modrinth_verify<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: &reqwest::Client,
     out_dir: PathBuf
@@ -96,7 +154,36 @@ pub async fn operation_verify<'a>(
     Ok(())
 }
 
-pub async fn id_from_file<'a>(
+async fn hangar_verify<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: &reqwest::Client,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{
+    if let arguments::IdSupplier::File(file) = conf.settings().supplier()
+    {
+        let ids = get_ids(file)?;
+        println!("Hangar IDs: {:?}", ids.hangar());
+        println!("Modrinth IDs: {:?}", ids.modrinth());
+        if let Some(hangar_ids) = ids.hangar()
+        {
+            hangar::verify_ids_from_list(conf, client, hangar_ids, out_dir).await?;
+        }
+
+        return Ok(())
+    }
+
+    // if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
+    // {
+    //     modrinth::verify_id(conf, client, id, out_dir).await?;
+
+    //     return Ok(())
+    // }
+
+    Ok(())
+}
+
+pub async fn modrinth_id_from_file<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: &reqwest::Client,
     ids: file_parse::FileIDs,
@@ -112,7 +199,7 @@ pub async fn id_from_file<'a>(
     Ok(())
 }
 
-pub async fn single_id<'a>(
+pub async fn modrinth_single_id<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: &reqwest::Client,
     id: &str,

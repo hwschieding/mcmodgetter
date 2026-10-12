@@ -161,7 +161,10 @@ impl TrackerFile
     {
         match self.entry(item.id())
         {
-            Some(ent) => item.version_id() == &ent.version_id,
+            Some(ent) => {
+                item.version_id() == &ent.version_id
+                && item.item_id() == &ent.item_id
+            },
             None => false
         }
     }

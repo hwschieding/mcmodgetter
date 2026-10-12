@@ -292,8 +292,36 @@ impl items::Dependency for HangarReqDep
 pub struct HangarVerQuery
 {
     platform: String,
-    platform_version: String,
+    platform_version: Option<String>,
     limit: u32,
+    channel: Option<String>,
+}
+
+impl HangarVerQuery
+{
+    fn get_version(v_list: &String) -> Option<String>
+    {
+        match v_list.split(',').next()
+        {
+            Some(v) => Some(String::from(v)),
+            None => None,
+        }
+    }
+
+    fn get_plaform(p: arguments::Platform) -> String
+    {
+        p.to_string()
+    }
+
+    fn build_query(user_version: &String, user_platform: arguments::Platform) -> Self
+    {
+        Self {
+            platform: Self::get_plaform(user_platform),
+            platform_version: Self::get_version(user_version),
+            limit: 1,
+            channel: None,
+        }
+    }
 }
 
 impl http_handler::Query for HangarVerQuery {}

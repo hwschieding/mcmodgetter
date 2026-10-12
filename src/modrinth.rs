@@ -7,7 +7,7 @@ use sha2::{Sha512, Digest};
 
 use crate::arguments::{DownloadSettings};
 use crate::file_parse::TrackerFile;
-use crate::http_handler::{Downloader};
+use crate::http_handler::{Downloader, Query};
 use crate::items::{ItemError, DependencyHandler, DependencyRequester};
 use crate::{arguments, http_handler::{self, HttpRequest}, items::{self, Item}};
 
@@ -296,47 +296,12 @@ pub struct ModrinthVerQuery {
 }
 
 impl ModrinthVerQuery {
-    fn array_start_string(prm: &str) -> String
-    {
-        format!("[\"{}\"", prm)
-    }
-    fn next_param(s: &mut String, prm: &str) -> ()
-    {
-        s.push_str(&format!(",\"{}\"", prm));
-    }
-    fn build_version_array(user_params: &String) -> String {
-        let mut params = user_params.split(",");
-        let mut res: String = Self::array_start_string(
-            params.next().unwrap_or("")
-        );
-        while let Some(prm) = params.next() {
-            Self::next_param(&mut res, prm);
-        }
-        res.push(']');
-        res
-    }
-    fn build_loader_array(user_loaders: &Vec<arguments::Platform>) -> String
-    {
-        let mut loaders = user_loaders.iter();
-        let mut res = Self::array_start_string(match loaders.next()
-            {
-                Some(l) => l.to_str(),
-                None => "",
-            }
-        );
-        while let Some(l) = loaders.next()
-        {
-            Self::next_param(&mut res, l.to_str());
-        }
-        res.push(']');
-        res
-    }
     pub fn build_query(
         user_mcvs: &String,
         user_loader: &Vec<arguments::Platform>
     ) -> ModrinthVerQuery {
         let game_versions= Self::build_version_array(user_mcvs);
-        let loaders= Self::build_loader_array(user_loader);
+        let loaders= Self::build_platform_array(user_loader);
         ModrinthVerQuery {
             game_versions,
             loaders,
@@ -352,7 +317,7 @@ impl ModrinthVerQuery {
     }
 }
 
-impl http_handler::Query for ModrinthVerQuery {}
+impl Query for ModrinthVerQuery {}
 
 #[derive(Deserialize)]
 pub struct ModrinthDependency {

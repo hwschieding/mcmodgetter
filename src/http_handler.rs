@@ -4,6 +4,7 @@ use reqwest::Response;
 use serde::{Deserialize, Deserializer, Serialize, de::{DeserializeOwned, Error}};
 
 use crate::http_handler;
+use crate::arguments;
 
 static DOWNLOAD_SIG: &'static str = "DOWNLOAD";
 
@@ -114,9 +115,63 @@ impl<'a> HttpRequest for BasicRequest<'a>
 }
 
 #[derive(Serialize)]
-pub struct EmptyQuery{}
+pub struct EmptyQuery {}
+impl Query for EmptyQuery {}
 
-pub trait Query {}
+pub trait Query {
+    fn build_version_array(user_params: &String) -> String {
+        let mut params = user_params.split(",");
+        let mut res = QArrayBuilder::new_from(
+            params.next().unwrap_or("")
+        );
+
+        while let Some(prm) = params.next() {
+            res.push(prm);
+        }
+
+        res.build()
+    }
+    fn build_platform_array(user_platforms: &Vec<arguments::Platform>) -> String
+    {
+        let mut platforms = user_platforms.iter();
+        let mut res = QArrayBuilder::new_from(match platforms.next()
+            {
+                Some(l) => l.to_str(),
+                None => "",
+            }
+        );
+
+        while let Some(l) = platforms.next()
+        {
+            res.push(l.to_str());
+        }
+        
+        res.build()
+    }
+}
+
+struct QArrayBuilder
+{
+    arr: String
+}
+
+impl QArrayBuilder
+{
+    pub fn new_from(start: &str) -> Self
+    {
+        QArrayBuilder { arr: format!("[\"{}\"", start) }
+    }
+    pub fn push(&mut self, elem: &str) -> ()
+    {
+        let parts = [",\"", elem, "\""];
+        self.arr.push_str(&parts.concat());
+    }
+    pub fn build(mut self) -> String
+    {
+        self.arr.push_str("]");
+        return self.arr
+    }
+}
 
 pub struct QueryRequest<'a, T>
 {
@@ -126,7 +181,7 @@ pub struct QueryRequest<'a, T>
 }
 
 impl<'a, T> QueryRequest<'a, T>
-where T: Serialize
+where T: Serialize + Query
 {
     pub fn build(client: &'a reqwest::Client, query: T) -> QueryRequest<'a, T>
     {

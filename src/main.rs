@@ -30,9 +30,7 @@ fn build_args(args: &Vec<String>) -> Result<RawConfig, Box<dyn Error>>
 }
 
 async fn run(raw_conf: RawConfig) -> Result<(), Box<dyn Error>> {
-    // println!("Starting...");
     let client = create_client()?;
-    // let out_dir = get_out_dir(raw_conf.options().out_dir())?;
     match raw_conf.mode() {
         AppMode::Download(settings) => {
             let conf = arguments::Config::build(&settings, raw_conf.options());

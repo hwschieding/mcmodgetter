@@ -20,7 +20,6 @@ fn print_tracker_error(msg: String)
 pub enum IdType {
     General(String),
     Modrinth(String),
-    // Curseforge(String),
     Hangar(String),
 }
 
@@ -53,7 +52,6 @@ struct IdBuilder
     general: Vec<String>,
     modrinth: Vec<String>,
     hangar: Vec<String>,
-    // curseforge: Vec<String>,
 }
 impl IdBuilder {
     fn new() -> Self
@@ -106,7 +104,6 @@ pub fn parse_input_line(line: String) -> Option<IdType> {
     };
     if let Some(val) = line_iter.next() {
         match val {
-            // "-curse" => Some(IdType::Curseforge(id)),
             "#hangar" => Some(IdType::Hangar(id)),
             "#modrinth" => Some(IdType::Modrinth(id)),
             _ => Some(IdType::General(id)),

@@ -6,7 +6,6 @@ macro_rules! missing_arg {
     };
 }
 
-// static PLATFORM_MISSING: &'static str = missing_arg!("platform");
 static VERSION_MISSING: &'static str = missing_arg!("version");
 static FILE_MISSING: &'static str = missing_arg!("filename");
 static ID_MISSING: &'static str = missing_arg!("id");
@@ -418,9 +417,6 @@ impl ConfigBuilder
                     api = Some(Api::Modrinth);
                     if let Some(p) = arg_iter.next()
                     { platforms = Some(p.to_string()) }
-                    // platforms = Some(
-                    //     try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
-                    // )
                 },
                 "-hangar" => {
                     api = Some(Api::Hangar);

@@ -1,4 +1,6 @@
 /.releases
 /target
 /mods
+/plugins
+/items
 *.txt

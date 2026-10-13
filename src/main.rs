@@ -32,17 +32,18 @@ fn build_args(args: &Vec<String>) -> Result<RawConfig, Box<dyn Error>>
 async fn run(raw_conf: RawConfig) -> Result<(), Box<dyn Error>> {
     // println!("Starting...");
     let client = create_client()?;
-    let out_dir = get_out_dir(raw_conf.options().out_dir())?;
+    // let out_dir = get_out_dir(raw_conf.options().out_dir())?;
     match raw_conf.mode() {
         AppMode::Download(settings) => {
-            println!("Download command used");
-            create_out_dir(&out_dir)?;
             let conf = arguments::Config::build(&settings, raw_conf.options());
+            let out_dir = get_out_dir(&conf)?;
+            create_out_dir(&out_dir)?;
             operation_download(&conf, &client, out_dir).await?
         },
         AppMode::CheckMods(settings) => {
-            create_out_dir(&out_dir)?;
             let conf = arguments::Config::build(&settings, raw_conf.options());
+            let out_dir = get_out_dir(&conf)?;
+            create_out_dir(&out_dir)?;
             operation_verify(&conf, &client, out_dir).await?;
         }
         AppMode::ReadMods(settings) => {
@@ -50,7 +51,13 @@ async fn run(raw_conf: RawConfig) -> Result<(), Box<dyn Error>> {
             read_mods(&conf, &client).await?;
         }
         AppMode::ClearMods => {
-            clear_mods(&out_dir).await?;
+            match raw_conf.options().out_dir()
+            {
+                Some(o) => clear_mods(o).await?,
+                None => { return Ok(Result::<_, &'static str>::Err(
+                    "Output directory must be specified"
+                )?)},
+            }
         },
         AppMode::Help => {
             help();

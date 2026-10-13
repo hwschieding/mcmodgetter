@@ -18,6 +18,10 @@ static PLATFORM_NEOFORGE: &'static str = "neoforge";
 static PLATFORM_PAPER: &'static str = "paper";
 static PLATFORM_VELOCITY: &'static str = "velocity";
 
+static MODS_OUT_DIR: &'static str = "mods";
+static PLUGINS_OUT_DIR: &'static str = "plugins";
+static GENERAL_OUT_DIR: &'static str = "items";
+
 const MODRINTH_PLATFORMS: &[&str] = &[
     PLATFORM_FABRIC,
     PLATFORM_FORGE,
@@ -151,6 +155,25 @@ impl Platform
     {
         String::from(self.to_str())
     }
+    fn is_mod_platform(&self) -> bool
+    {
+        match self
+        {
+            Self::Fabric => true,
+            Self::Neoforge => true,
+            Self::Forge => true,
+            _ => false,
+        }
+    }
+    fn is_plugin_platform(&self) -> bool
+    {
+        match self
+        {
+            Self::Paper => true,
+            Self::Velocity => true,
+            _ => false,
+        }
+    }
 }
 
 
@@ -184,6 +207,20 @@ impl UserPlatform {
     pub fn try_get_top(&self) -> Option<&Platform>
     {
         self.platforms.get(0)
+    }
+    pub fn out_dir_name(&self) -> &'static str
+    {
+        let mut is_mod = true;
+        let mut is_plugin = true;
+        for plat in &self.platforms
+        {
+            is_mod = is_mod && plat.is_mod_platform();
+            is_plugin = is_plugin && plat.is_plugin_platform();
+        };
+
+        if is_mod { MODS_OUT_DIR }
+        else if is_plugin { PLUGINS_OUT_DIR }
+        else { GENERAL_OUT_DIR }
     }
 }
 

@@ -12,8 +12,6 @@ pub mod file_parse;
 pub mod items;
 pub mod http_handler;
 
-static DEFAULT_OUT_DIR: &'static str = "mods";
-
 /*  
     This user agent is only to be used for mcmodgetter and projects affiliated
     with me (https://github.com/hwschieding) and mcmodgetter
@@ -207,11 +205,20 @@ pub fn create_client() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
-pub fn get_out_dir(conf_dir: Option<&PathBuf>) -> io::Result<PathBuf> {
-    let res = env::current_dir()?
-        .join(conf_dir.unwrap_or(&PathBuf::from(DEFAULT_OUT_DIR)))
-    ;
-    Ok(res)
+pub fn get_out_dir<'a>(conf: &arguments::Config<'a, &DownloadSettings>) -> io::Result<PathBuf> {
+    let dirname: &PathBuf = match conf.opts().out_dir()
+    {
+        Some(d) => d,
+        None => &PathBuf::from(conf
+            .settings()
+            .platform()
+            .out_dir_name()
+        ),
+    };
+
+    Ok(
+        env::current_dir()?.join(dirname)
+    )
 }
 
 pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {

@@ -229,25 +229,34 @@ pub fn create_out_dir(dir_path: &PathBuf) -> Result<(), io::Error> {
 pub fn help() -> () {
     println!(
         "{} v{}\n\nCOMMANDS:
-  download: Downloads specifed items from a provider (use -id or -file, -mcv required)
+  download: Downloads specifed items from a provider (use -id or -file, -v required)
   checkmods: Verifies items in mod folder against specified options
-  clearmods: Removes tracked files in specified mod folder (use -o if necessary)
+  clearmods: Removes tracked files in specified mod folder (-o required)
   readmods: Query names and descriptions for project ids in the specified file (use -file)
   *Include at exactly one of these when running mcmodgetter.
 
-  OPTIONS:
-  -id <string>: Specifies single modrinth ID to download
-  -file <filename>: Specifies filename of modrinth IDs to download
+  For more information about setting up a modlist file, see
+      https://github.com/hwschieding/mcmodgetter#setting-up-a-mod-list-file
 
-  -mcv <minecraft version>: Specifies MC version to query for items
+  OPTIONS:
+  -id <string>: Specifies single provider ID to download
+  -file <filename>: Specifies filename of provider IDs to download
+
+  -v <platform version>: Specifies platform version to query for items
+
   [-modrinth|-hangar] <platform>: Specify which provider to download from and a platform.
       Possible platforms are: fabric, forge, neoforge, paper, velocity
+
   *To query for multiple versions/platforms, separate by commas(,) with no spaces
   **Provider and plaform default to Modrinth and Fabric respectively
 
-  -o <folder> [DEFAULT=mods]: Specifies output folder for mods relative to local directory
+  -o <folder>: Specifies output folder for mods relative to local directory
+  *Will default to [\"mods/\"|\"plugins/\"|\"items/\"] based on specified platforms.
+  *Default will not apply for clearmods
 
-  --skipdeps: Skip searching for and downloading mod dependencies
+  --skipdeps: Skip automatic dependency handling
+
+  --releaseonly: Query for release builds only
   
   -h, --help, -help: Show this help prompt",
     env!("CARGO_PKG_NAME"),

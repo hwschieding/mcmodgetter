@@ -1,10 +1,12 @@
 # mcmodgetter
 
-A simple lightweight command line tool for Minecraft using the Modrinth API to automatically download mods into a specified folder, programmed in Rust.
+A simple lightweight command line tool for Minecraft using provider's APIs to automatically and asynchronously download mods and plugins into a specified folder, programmed in Rust.
 
 This tool is primarily designed to be used by server admins to have an easier time downloading mods for their servers, for instance when they update to a new game version. If you are looking for a way to manage mods for your Minecraft client, you'll probably want something far more sophisticated, e.g. [Prism Launcher](https://prismlauncher.org).
 
-**Currently, only Modrinth mods are supported, but Curseforge and Hangar support in the future are not out of the question.**
+**Currently, only the Modrinth and Hangar APIs are supported. Curseforge support will probably never happen.**
+
+mcmodgetter is not affliated with of Microsoft, Mojang, Minecraft, PaperMC or Modrinth.
 
 ## How to use
 
@@ -14,26 +16,34 @@ You can run the executable with the `--help` argument for a full documentation o
 
 A basic example of a successfully executing command would look like this:
 
-`mcmodgetter.exe download -id P7dR8mSH -mcv 1.21.11`
+`mcmodgetter.exe download -id P7dR8mSH -v 26.3`
 
-This would download Fabric API from modrinth for Minecraft 1.21.11 and the Fabric mod loader to a 'mods' directory local to the executable*.
+This would download Fabric API from modrinth for Minecraft 26.3 and the Fabric mod loader to a 'mods' directory local to the executable\*.
 
 *\*on Microsoft Windows*
-## Getting a mod's ID
+## Getting an ID or slug from a provider
 
+* For modrinth:
 1. Navigate to the mod on Modrinth (e.g. https://modrinth.com/mod/fabric-api)
 2. Click on the three dots in the top right corner and click "Copy ID"
 
 This will copy the mod's ID to your clipboard.
+* For hangar:
+
+    As far as I know, there is no way to directly obtain the ID of a plugin. You'll have to use the slug instead:
+1. Navigate to the plugin on Hangar (e.g. https://hangar.papermc.io/ViaVersion/ViaVersion)
+2. At the top of the page, copy the slug located on the righthand side of the forward slash(`/`).
 
 ## Setting up a mod list file
 
-mcmodgetter supports downloading multiple mods concurrently from a single command through the use of a plaintext file of mod IDs. Setting up such a file is very simple:
+mcmodgetter supports downloading multiple items concurrently from a single command through the use of a plaintext file of provider IDs. Setting up such a file is very simple:
 
 1. Create a text file in the same directory as the executable.
 2. Paste the mod IDs for every mod you wish to download into the file line by line.
     * To "comment out" a line, use a `#` symbol as the first character in the line.
 3. Run the executable with the `download -file <modlist file>` configuration with the name of the file you just created.
+
+To have IDs from multiple providers in the same modlist, you can force any ID in the modlist to only queried for when a specific provider is specified. To do so, add `#modrinth` or `#hangar` after the ID on the same line, separated by a space. If a provider tag is not specified, the ID will always be used.
 
 ## Additional features
 
@@ -45,7 +55,7 @@ mcmodgetter supports downloading multiple mods concurrently from a single comman
     This file is not meant to be edited manually. Do not edit it unless you're sure you know what you're doing.
 * ### Other functions
     Besides downloading mods, mcmodgetter has a couple other abilities:
-    * `readmods` reads a modlist file and queries Modrinth for project titles and descriptions, in case you forgot what mods your IDs correspond to
+    * `readmods` reads a modlist file and queries for project titles and descriptions, in case you forgot what mods your IDs correspond to
 
     * `checkmods` compares specified parameters to mods currently present in the mod folder, listing how many can be updated
 

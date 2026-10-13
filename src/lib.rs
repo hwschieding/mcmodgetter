@@ -69,7 +69,7 @@ async fn hangar_read_mods<'a>(
     file: &PathBuf,
 ) -> io::Result<()>
 {
-    Ok(())
+    Ok(hangar::list_projects(client, &get_ids(file)?.hangar()).await)
 }
 
 pub async fn operation_download<'a>(
@@ -116,8 +116,8 @@ async fn hangar_download<'a>(
         {
             hangar::download_from_id_list(conf, client, &get_ids(file)?.hangar(), out_dir).await
         },
-        arguments::IdSupplier::Id(_id) =>
-            Ok(())
+        arguments::IdSupplier::Id(id) =>
+            hangar::download_from_id(conf, client, id, out_dir).await
     }
 }
 
@@ -161,32 +161,13 @@ async fn hangar_verify<'a>(
     {
         hangar::verify_ids_from_list(conf, client, &get_ids(file)?.hangar(), out_dir).await
     }
+    else if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
+    {
+        hangar::verify_id(conf, client, id, out_dir).await
+    }
     else { Ok(()) }
 
-    // if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
-    // {
-    //     modrinth::verify_id(conf, client, id, out_dir).await?;
-
-    //     return Ok(())
-    // }
-
 }
-
-// pub async fn modrinth_id_from_file<'a>(
-//     conf: &arguments::Config<'a, &DownloadSettings>,
-//     client: &reqwest::Client,
-//     ids: file_parse::FileIDs,
-//     out_dir: PathBuf
-// ) -> Result<(), Box<dyn error::Error>>
-// {
-    
-//     println!("Handling modrinth ids...");
-//     modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await?;
-//     if let Some(modrinth_ids) = ids.modrinth() {
-//     };
-    
-//     Ok(())
-// }
 
 pub async fn modrinth_single_id<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,

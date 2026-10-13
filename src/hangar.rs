@@ -358,6 +358,48 @@ impl HangarVerQuery
 
 impl http_handler::Query for HangarVerQuery {}
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all="camelCase")]
+struct ProjectNamespace
+{
+    owner: String,
+    slug: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all="camelCase")]
+struct HangarProject
+{
+    id: u32,
+    name: String,
+    description: String,
+    namespace: ProjectNamespace,
+}
+
+impl HangarProject
+{
+    async fn build<'a>(
+        requester: &BasicRequest<'a>,
+        id: &str,
+    ) -> reqwest::Result<Self>
+    {
+        let url = format!("{}/projects/{}", HANGAR_URL, id);
+        requester.retrieve_deserialized::<Self>(&url).await
+    }
+
+    fn list_info(&self) -> ()
+    {
+        println!(
+            "\n{} ({}) -> {}, published by {}\n{}",
+            self.id,
+            self.namespace.slug,
+            self.name,
+            self.namespace.owner,
+            self.description
+        )
+    }
+}
+
 async fn collect_plugins<'a>(
     requester: &QueryRequest<'a, HangarVerQuery>,
     ids: &Vec<String>,
@@ -435,6 +477,31 @@ async fn plugin_list_from_ids<'a>(
     Ok(plugins)
 }
 
+pub async fn list_projects(
+    client: &reqwest::Client,
+    id_list: &Vec<String>,
+) -> () {
+    let pid_requester = http_handler::BasicRequest::build(client);
+
+    let items: Vec<_> = id_list
+        .iter()
+        .map(|id| {
+            HangarProject::build(&pid_requester, id)
+        })
+        .collect()
+    ;
+    
+    for item_result in future::join_all(items).await
+    {
+        match item_result {
+            Ok(item) => item.list_info(),
+            Err(err) => println!("Couldn't retrieve ID: {err}")
+        }
+    };
+
+    ()
+}
+
 pub async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: & reqwest::Client,
@@ -477,6 +544,30 @@ pub async fn verify_ids_from_list<'a>(
     let tracker: TrackerFile = TrackerFile::build(&out_dir)?;
 
     items::filter_items_by_tracker(items, &tracker);
+
+    Ok(())
+}
+
+pub async fn download_from_id<'a>(
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: & reqwest::Client,
+    id: &str,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>>
+{   
+    download_from_id_list(conf, client, &vec![id.to_string()], out_dir).await?;
+
+    Ok(())
+}
+
+pub async fn verify_id<'a> (
+    conf: &arguments::Config<'a, &DownloadSettings>,
+    client: & reqwest::Client,
+    id: &str,
+    out_dir: PathBuf
+) -> Result<(), Box<dyn error::Error>> {
+    
+    verify_ids_from_list(conf, client, &vec![id.to_string()], out_dir).await?;
 
     Ok(())
 }

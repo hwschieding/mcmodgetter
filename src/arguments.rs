@@ -6,7 +6,7 @@ macro_rules! missing_arg {
     };
 }
 
-static PLATFORM_MISSING: &'static str = missing_arg!("platform");
+// static PLATFORM_MISSING: &'static str = missing_arg!("platform");
 static VERSION_MISSING: &'static str = missing_arg!("version");
 static FILE_MISSING: &'static str = missing_arg!("filename");
 static ID_MISSING: &'static str = missing_arg!("id");
@@ -379,15 +379,16 @@ impl ConfigBuilder
                 "readmods" => mode = Some(ModeArg::ReadMods),
                 "-modrinth" => {
                     api = Some(Api::Modrinth);
-                    platforms = Some(
-                        try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
-                    )
+                    if let Some(p) = arg_iter.next()
+                    { platforms = Some(p.to_string()) }
+                    // platforms = Some(
+                    //     try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
+                    // )
                 },
                 "-hangar" => {
                     api = Some(Api::Hangar);
-                    platforms = Some(
-                        try_get_arg(arg_iter.next(), PLATFORM_MISSING)?
-                    )
+                    if let Some(p) = arg_iter.next()
+                    { platforms = Some(p.to_string()) }
                 }
                 "-mcv" => platform_version = Some(
                     try_get_arg(arg_iter.next(), VERSION_MISSING)?

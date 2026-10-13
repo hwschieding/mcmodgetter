@@ -507,6 +507,7 @@ struct ModrinthProject
     id: String,
     title: String,
     description: String,
+    slug: Option<String>,
 }
 impl ModrinthProject
 {
@@ -521,10 +522,15 @@ impl ModrinthProject
 
     fn list_info(&self)
     {
-        println!("\n{} -> {}\n{}",
+
+        println!("\n{} ({}) -> {}\n{}",
             self.id,
+            match &self.slug {
+                Some(s) => s,
+                None => "no slug"
+            },
             self.title,
-            self.description
+            self.description,
         );
     }
 }

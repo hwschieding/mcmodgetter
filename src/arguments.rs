@@ -541,6 +541,11 @@ impl ConfigBuilder
         Ok(RawConfig { mode: AppMode::Download(settings), ops: opts })
     }
 
+    pub fn build_help(self) -> Result<RawConfig, &'static str>
+    {
+        Ok(RawConfig { mode: AppMode::Help, ops: OptionsBuilder::new().build() })
+    }
+
     pub fn build<'a>(self) -> Result<RawConfig, &'static str>
     {
         match &self.mode
@@ -549,7 +554,8 @@ impl ConfigBuilder
             ModeArg::CheckMods => self.build_checkmods(),
             ModeArg::ClearMods => self.build_clearmods(),
             ModeArg::ReadMods => self.build_readmods(),
-            _ => Err("")
+            ModeArg::Help => self.build_help(),
+            // _ => Err("")
         }
     }
 }

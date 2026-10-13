@@ -427,7 +427,7 @@ impl ConfigBuilder
                     if let Some(p) = arg_iter.next()
                     { platforms = Some(p.to_string()) }
                 }
-                "-mcv" => platform_version = Some(
+                "-v" => platform_version = Some(
                     try_get_arg(arg_iter.next(), VERSION_MISSING)?
                 ),
                 "-file" => id_mode = Some(IdModeArg::File(

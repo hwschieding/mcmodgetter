@@ -107,8 +107,8 @@ pub fn parse_input_line(line: String) -> Option<IdType> {
     if let Some(val) = line_iter.next() {
         match val {
             // "-curse" => Some(IdType::Curseforge(id)),
-            "-hang" => Some(IdType::Hangar(id)),
-            "-mod" => Some(IdType::Modrinth(id)),
+            "#hangar" => Some(IdType::Hangar(id)),
+            "#modrinth" => Some(IdType::Modrinth(id)),
             _ => Some(IdType::General(id)),
         }
     } else {

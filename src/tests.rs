@@ -10,7 +10,7 @@ fn config1()
         "download",
         "-id",
         "AABBCCDD",
-        "-mcv",
+        "-v",
         "26.3",
     ].into_iter()
         .map(|elem| String::from(elem))
@@ -38,7 +38,7 @@ fn config2()
         "download",
         "-file",
         "filename.txt",
-        "-mcv",
+        "-v",
         "1.20.1,1.20.2",
         "--skipdeps",
         "-modrinth",
@@ -96,7 +96,7 @@ fn modrinth_query_building()
         "download",
         "-file",
         "filename.txt",
-        "-mcv",
+        "-v",
         "1.20.1,1.20.2",
         "--skipdeps",
         "-modrinth",

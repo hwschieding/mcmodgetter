@@ -66,7 +66,8 @@ impl DownloadSettings
 #[derive(Debug)]
 pub struct ReadModsSettings
 {
-    supplier: IdSupplier
+    supplier: IdSupplier,
+    api: Api,
 }
 
 impl ReadModsSettings
@@ -74,6 +75,10 @@ impl ReadModsSettings
     pub fn supplier(&self) -> &IdSupplier
     {
         &self.supplier
+    }
+    pub fn api(&self) -> &Api
+    {
+        &self.api
     }
 }
 
@@ -424,9 +429,15 @@ impl ConfigBuilder
         let supplier = IdSupplier::from_id_mode(
             self.id_mode.ok_or(FILE_MISSING)?
         );
+        let api = match self.api
+        {
+            Some(a) => a,
+            None => Api::default()
+        };
         let settings = ReadModsSettings
         {
-            supplier
+            supplier,
+            api
         };
 
         let opts = OptionsBuilder::new().build();

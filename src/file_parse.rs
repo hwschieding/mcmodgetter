@@ -17,66 +17,72 @@ fn print_tracker_error(msg: String)
     println!("[{}/ERROR] {}", TRACKER_SIG, msg);
 }
 
-pub enum IdType<'a> {
-    Modrinth(&'a str),
-    Curseforge(&'a str),
-    Hangar(&'a str),
+pub enum IdType {
+    General(String),
+    Modrinth(String),
+    // Curseforge(String),
+    Hangar(String),
 }
 
 pub struct FileIDs {
-    modrinth: Option<Vec<String>>,
-    curseforge: Option<Vec<String>>,
-    hangar: Option<Vec<String>>,
+    general: Vec<String>,
+    modrinth: Vec<String>,
+    hangar: Vec<String>,
 }
 
 impl FileIDs {
-    pub fn build(
-        modrinth_ids: Vec<String>,
-        curse_ids: Vec<String>,
-        hangar_ids: Vec<String>,
-    ) -> FileIDs {
-        let modrinth = match modrinth_ids.len() {
-            0 => None,
-            _ => Some(modrinth_ids)
-        };
-        let curseforge = match curse_ids.len() {
-            0 => None,
-            _ => Some(curse_ids)
-        };
-        let hangar = match hangar_ids.len() {
-            0 => None,
-            _ => Some(hangar_ids)
-        };
-        FileIDs { modrinth, curseforge, hangar }
-    }
-
-    pub fn build_modrinth_only(ids: Vec<String>) -> FileIDs {
-        let modrinth = match ids.len() {
-            0 => None,
-            _ => Some(ids)
-        };
-        let curseforge = None;
-        let hangar = None;
-        FileIDs { modrinth, curseforge, hangar }
-    }
     
-    pub fn modrinth(&self) -> &Option<Vec<String>> {
-        &self.modrinth
+    pub fn general(self) -> Vec<String> {
+        self.general
     }
 
-    pub fn curseforge(&self) -> &Option<Vec<String>> {
-        &self.curseforge
+    pub fn modrinth(mut self) -> Vec<String> {
+        self.general.extend(self.modrinth);
+        self.general
     }
 
-    pub fn hangar(&self) -> &Option<Vec<String>> {
-        &self.hangar
+    pub fn hangar(mut self) -> Vec<String> {
+        self.general.extend(self.hangar);
+        self.general
+    }
+}
+
+#[derive(Debug)]
+struct IdBuilder
+{
+    general: Vec<String>,
+    modrinth: Vec<String>,
+    hangar: Vec<String>,
+    // curseforge: Vec<String>,
+}
+impl IdBuilder {
+    fn new() -> Self
+    {
+        let general = Vec::<String>::new();
+        let modrinth = Vec::<String>::new();
+        let hangar = Vec::<String>::new();
+
+        Self { general, modrinth, hangar }
+    }
+
+    fn add_id(&mut self, id: IdType)
+    {
+        match id {
+            IdType::Modrinth(s) => self.modrinth.push(s),
+            IdType::Hangar(s) => self.hangar.push(s),
+            IdType::General(s) => self.general.push(s),
+        }
+    }
+
+    fn build(self) -> FileIDs
+    {
+        FileIDs { modrinth: self.modrinth, general: self.general, hangar: self.hangar }
     }
 }
 
 pub fn parse_ids(filepath: &Path) -> io::Result<FileIDs> {
-    let mut modrinth_ids: Vec<String> = Vec::new();
-    let mut curse_ids: Vec<String> = Vec::new();
-    let mut hangar_ids: Vec<String> = Vec::new();
+    
+    let mut id_builder = IdBuilder::new();
 
     let f_in = File::open(filepath)?;
     let reader = BufReader::new(f_in);
@@ -84,32 +90,29 @@ pub fn parse_ids(filepath: &Path) -> io::Result<FileIDs> {
         let line = line_res?;
         if let Some(c) = line.chars().nth(0) && c == '#' {
             println!("Skipping line '{line}'");
-        } else if let Some(val) = parse_input_line(&line){
-            match val {
-                IdType::Modrinth(id) => { modrinth_ids.push(String::from(id)); },
-                IdType::Curseforge(id) => { curse_ids.push(String::from(id)); },
-                IdType::Hangar(id) => { hangar_ids.push(String::from(id)); },
-            }
+        } else if let Some(val) = parse_input_line(line){
+            id_builder.add_id(val);
         }
     }
 
-    Ok(FileIDs::build(modrinth_ids, curse_ids, hangar_ids))
+    Ok(id_builder.build())
 }
 
-pub fn parse_input_line<'a>(line: &'a String) -> Option<IdType<'a>> {
+pub fn parse_input_line(line: String) -> Option<IdType> {
     let mut line_iter = line.split(" ");
-    let id: &'a str = match line_iter.next() {
-        Some(val) => val,
+    let id: String = match line_iter.next() {
+        Some(val) => val.to_string(),
         None => { return None; }
     };
     if let Some(val) = line_iter.next() {
         match val {
-            "-curse" => Some(IdType::Curseforge(id)),
+            // "-curse" => Some(IdType::Curseforge(id)),
             "-hang" => Some(IdType::Hangar(id)),
-            _ => Some(IdType::Modrinth(id)),
+            "-mod" => Some(IdType::Modrinth(id)),
+            _ => Some(IdType::General(id)),
         }
     } else {
-        Some(IdType::Modrinth(id))
+        Some(IdType::General(id))
     }
 }
 

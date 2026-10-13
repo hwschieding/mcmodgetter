@@ -42,15 +42,33 @@ pub async fn read_mods<'a>(
     client: &reqwest::Client,
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    if let arguments::IdSupplier::File(f) = conf.settings().supplier()
+    let file = match conf.settings().supplier()
     {
-        let ids = get_ids(f)?;
-        if let Some(modrinth_ids) = ids.modrinth() {
-            modrinth::list_projects(client, modrinth_ids).await;
-        }
-    } else {
-        println!("Couldn't get filename");
+        arguments::IdSupplier::File(f) => f,
+        _ => { println!("Couldn't get filename"); return Ok(()) }
+    };
+
+    match conf.settings().api()
+    {
+        arguments::Api::Modrinth => modrinth_read_mods(client, file).await?,
+        arguments::Api::Hangar => hangar_read_mods(client, file).await?,
     }
+    Ok(())
+}
+
+async fn modrinth_read_mods<'a>(
+    client: &reqwest::Client,
+    file: &PathBuf,
+) -> io::Result<()>
+{
+    Ok(modrinth::list_projects(client, &get_ids(file)?.modrinth()).await)
+}
+
+async fn hangar_read_mods<'a>(
+    client: &reqwest::Client,
+    file: &PathBuf,
+) -> io::Result<()>
+{
     Ok(())
 }
 
@@ -77,20 +95,13 @@ async fn modrinth_download<'a>(
     {
         arguments::IdSupplier::File(file) => 
         {
-            if let Some(ids) = get_ids(file)?.modrinth()
-            {
-                modrinth::download_from_id_list(conf, client, ids, out_dir).await?
-            };
+            modrinth::download_from_id_list(conf, client, &get_ids(file)?.modrinth(), out_dir).await
         },
-            // id_from_file(conf, client, get_ids(file)?, out_dir).await,
         arguments::IdSupplier::Id(id) =>
         {
-            modrinth::download_from_id(conf, client, id, out_dir).await?
+            modrinth::download_from_id(conf, client, id, out_dir).await
         }
-            // single_id(conf, client, id, out_dir).await
-    };
-
-    Ok(())
+    }
 }
 
 async fn hangar_download<'a>(
@@ -103,15 +114,11 @@ async fn hangar_download<'a>(
     {
         arguments::IdSupplier::File(file) => 
         {
-            if let Some(ids) = get_ids(file)?.hangar()
-            {
-                hangar::download_from_id_list(conf, client, ids, out_dir).await?
-            };
+            hangar::download_from_id_list(conf, client, &get_ids(file)?.hangar(), out_dir).await
         },
         arguments::IdSupplier::Id(_id) =>
-            ()
-    };
-    Ok(())
+            Ok(())
+    }
 }
 
 pub async fn operation_verify<'a>(
@@ -135,23 +142,13 @@ async fn modrinth_verify<'a>(
 {
     if let arguments::IdSupplier::File(file) = conf.settings().supplier()
     {
-        let ids = get_ids(file)?;
-        if let Some(modrinth_ids) = ids.modrinth()
-        {
-            modrinth::verify_ids_from_list(conf, client, modrinth_ids, out_dir).await?;
-        }
-
-        return Ok(())
+        modrinth::verify_ids_from_list(conf, client, &get_ids(file)?.modrinth(), out_dir).await
     }
-
-    if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
+    else if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
     {
-        modrinth::verify_id(conf, client, id, out_dir).await?;
-
-        return Ok(())
+        modrinth::verify_id(conf, client, id, out_dir).await
     }
-
-    Ok(())
+    else { Ok(()) }
 }
 
 async fn hangar_verify<'a>(
@@ -162,16 +159,9 @@ async fn hangar_verify<'a>(
 {
     if let arguments::IdSupplier::File(file) = conf.settings().supplier()
     {
-        let ids = get_ids(file)?;
-        println!("Hangar IDs: {:?}", ids.hangar());
-        println!("Modrinth IDs: {:?}", ids.modrinth());
-        if let Some(hangar_ids) = ids.hangar()
-        {
-            hangar::verify_ids_from_list(conf, client, hangar_ids, out_dir).await?;
-        }
-
-        return Ok(())
+        hangar::verify_ids_from_list(conf, client, &get_ids(file)?.hangar(), out_dir).await
     }
+    else { Ok(()) }
 
     // if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
     // {
@@ -180,24 +170,23 @@ async fn hangar_verify<'a>(
     //     return Ok(())
     // }
 
-    Ok(())
 }
 
-pub async fn modrinth_id_from_file<'a>(
-    conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
-    ids: file_parse::FileIDs,
-    out_dir: PathBuf
-) -> Result<(), Box<dyn error::Error>>
-{
+// pub async fn modrinth_id_from_file<'a>(
+//     conf: &arguments::Config<'a, &DownloadSettings>,
+//     client: &reqwest::Client,
+//     ids: file_parse::FileIDs,
+//     out_dir: PathBuf
+// ) -> Result<(), Box<dyn error::Error>>
+// {
     
-    if let Some(modrinth_ids) = ids.modrinth() {
-        println!("Handling modrinth ids...");
-        modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await?;
-    };
+//     println!("Handling modrinth ids...");
+//     modrinth::download_from_id_list(conf, client, modrinth_ids, out_dir).await?;
+//     if let Some(modrinth_ids) = ids.modrinth() {
+//     };
     
-    Ok(())
-}
+//     Ok(())
+// }
 
 pub async fn modrinth_single_id<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,

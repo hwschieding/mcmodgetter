@@ -1,6 +1,6 @@
 [package]
 name = "mcmodgetter"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2024"
 
 [dependencies]
@@ -12,3 +12,8 @@ sha2 = "0.11"
 hex = "0.4"
 bytes = "1"
 csv = "1.4.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

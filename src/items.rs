@@ -1,5 +1,5 @@
-use std::{collections::HashSet, error, fmt, io, path::{Path, PathBuf}};
-use futures::future;
+use std::{collections::HashSet, error, fmt, io, path::{Path, PathBuf}, sync::Arc};
+use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::{file_parse::TrackerFile, http_handler};
 
@@ -86,16 +86,16 @@ pub trait Item : Sized
     type Dep: Dependency;
     type VersionQuery: http_handler::Query;
 
-    #[allow(async_fn_in_trait)]
-    async fn download<'a>(
-        &mut self,
-        downloader: &http_handler::Downloader<'a>,
-    ) -> ();
+    // #[allow(async_fn_in_trait)]
+    fn download(
+        &self,
+        downloader: &http_handler::Downloader,
+    ) -> impl std::future::Future<Output = Result<(), http_handler::DownloadError>> + std::marker::Send;
     fn id(&self) -> &String;
     fn version_id(&self) -> &String;
     fn version_title(&self) -> &String;
     fn filename(&self) -> &PathBuf;
-    fn downloaded(&self) -> bool;
+    // fn downloaded(&self) -> bool;
 
     fn item_id(&self) -> &'static str;
 
@@ -119,16 +119,16 @@ pub struct DependencyRequester<'a, V>
 where
     V: http_handler::Query
 {
-    pid_req: &'a http_handler::QueryRequest<'a, V>,
-    vid_req: &'a http_handler::BasicRequest<'a>,
+    pid_req: &'a http_handler::QueryRequest<V>,
+    vid_req: &'a http_handler::BasicRequest,
 }
 impl<'a, V> DependencyRequester<'a, V>
 where
     V: http_handler::Query
 {
     pub fn new(
-        pid_req: &'a http_handler::QueryRequest<'a, V>,
-        vid_req: &'a http_handler::BasicRequest<'a>
+        pid_req: &'a http_handler::QueryRequest<V>,
+        vid_req: &'a http_handler::BasicRequest
     ) -> DependencyRequester<'a, V>
     {
         DependencyRequester { pid_req, vid_req }
@@ -136,11 +136,11 @@ where
 
     pub fn project_id_requester(
         &self
-    ) -> &'a http_handler::QueryRequest<'a, V>
+    ) -> &'a http_handler::QueryRequest<V>
     {
         self.pid_req
     }
-    pub fn version_id_requester(&self) -> &'a http_handler::BasicRequest<'a>
+    pub fn version_id_requester(&self) -> &'a http_handler::BasicRequest
     {
         self.vid_req
     }
@@ -239,22 +239,64 @@ where
     res
 }
 
-pub async fn download_items<'a, T>(
-    downloader: &http_handler::Downloader<'a>,
-    items: &mut Vec<T>,
-) -> ()
+
+    // let mut download_futures = Vec::new();
+
+    // for m in items
+    // {
+    //     download_futures.push(m.download(downloader));
+    // }
+
+    // future::join_all(download_futures).await;
+    // ()
+
+pub async fn download_items<T>(
+    downloader: Arc<http_handler::Downloader>,
+    items: Vec<T>,
+) -> Result<Vec<T>, Box<dyn error::Error>>
 where
+    T: Send + 'static,
     T: Item
 {
-    let mut download_futures = Vec::new();
+    let mut set = JoinSet::new();
+    let semaphore = Arc::new(Semaphore::new(8));
 
     for m in items
     {
-        download_futures.push(m.download(downloader));
+        let sem_clone = Arc::clone(&semaphore);
+        let dl_clone = Arc::clone(&downloader);
+
+        set.spawn(async move {
+            let _permit = match sem_clone.acquire().await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Async download failed: {e}");
+                    return None;
+                }
+            };
+
+            match m.download(&dl_clone).await
+            {
+                Ok(_) => Some(m),
+                Err(e) => {
+                    eprintln!("{e}");
+                    None
+                }
+            }
+        });
     }
 
-    future::join_all(download_futures).await;
-    ()
+    let mut completed_downloads = Vec::new();
+    while let Some(res) = set.join_next().await
+    {
+        if let Ok(Some(i)) = res
+        {
+            completed_downloads.push(i);
+        }
+    }
+
+    Ok(completed_downloads)
 }
 
 pub fn ask_user_to_download(out_dir: &Path) -> io::Result<bool>

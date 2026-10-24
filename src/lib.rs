@@ -37,7 +37,7 @@ fn get_ids<'a>(f: &Path) -> io::Result<file_parse::FileIDs> {
 
 pub async fn read_mods<'a>(
     conf: &arguments::Config<'a, &ReadModsSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     let file = match conf.settings().supplier()
@@ -55,7 +55,7 @@ pub async fn read_mods<'a>(
 }
 
 async fn modrinth_read_mods<'a>(
-    client: &reqwest::Client,
+    client: reqwest::Client,
     file: &PathBuf,
 ) -> io::Result<()>
 {
@@ -63,7 +63,7 @@ async fn modrinth_read_mods<'a>(
 }
 
 async fn hangar_read_mods<'a>(
-    client: &reqwest::Client,
+    client: reqwest::Client,
     file: &PathBuf,
 ) -> io::Result<()>
 {
@@ -72,7 +72,7 @@ async fn hangar_read_mods<'a>(
 
 pub async fn operation_download<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
@@ -85,7 +85,7 @@ pub async fn operation_download<'a>(
 
 async fn modrinth_download<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
@@ -104,7 +104,7 @@ async fn modrinth_download<'a>(
 
 async fn hangar_download<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
@@ -121,7 +121,7 @@ async fn hangar_download<'a>(
 
 pub async fn operation_verify<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
@@ -134,7 +134,7 @@ pub async fn operation_verify<'a>(
 
 async fn modrinth_verify<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
@@ -151,7 +151,7 @@ async fn modrinth_verify<'a>(
 
 async fn hangar_verify<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
@@ -169,7 +169,7 @@ async fn hangar_verify<'a>(
 
 pub async fn modrinth_single_id<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     id: &str,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn std::error::Error>>

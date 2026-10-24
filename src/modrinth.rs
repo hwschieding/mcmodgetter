@@ -1,13 +1,13 @@
+use std::sync::Arc;
 use std::{error};
 use std::path::{PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
-use sha2::digest::Output;
 use sha2::{Sha512, Digest};
 
 use crate::arguments::{DownloadSettings};
 use crate::file_parse::TrackerFile;
-use crate::http_handler::{Downloader, Query};
+use crate::http_handler::{Downloader, Query, HashCheck};
 use crate::items::{ItemError, DependencyHandler, DependencyRequester};
 use crate::{arguments, http_handler::{self, HttpRequest}, items::{self, Item}};
 
@@ -30,23 +30,24 @@ pub struct ModrinthItem
     version_id: String,
     downloadable: ModrinthFile,
     dependencies: Vec<ModrinthReqDep>,
-    downloaded: bool,
+    // downloaded: bool,
 }
 impl Item for ModrinthItem
 {
     type Dep = ModrinthReqDep;
     type VersionQuery = ModrinthVerQuery;
 
-    async fn download<'a>(
-        &mut self,
-        downloader: &Downloader<'a>,
-    ) -> ()
+    async fn download<'b>(
+        &self,
+        downloader: &'b Downloader,
+    ) -> Result<(), http_handler::DownloadError>
     {
-        match self.downloadable.download(downloader).await
-        {
-            Err(err) => println!("{}", err),
-            Ok(_) => self.downloaded = true,
-        }
+        self.downloadable.download(downloader).await
+        // match self.downloadable.download(downloader).await
+        // {
+        //     Err(err) => println!("{}", err),
+        //     Ok(_) => self.downloaded = true,
+        // }
     }
     fn id(&self) -> &String
     {
@@ -60,10 +61,10 @@ impl Item for ModrinthItem
     {
         &self.version_title
     }
-    fn downloaded(&self) -> bool
-    {
-        self.downloaded
-    }
+    // fn downloaded(&self) -> bool
+    // {
+    //     self.downloaded
+    // }
     fn filename(&self) -> &PathBuf
     {
         self.downloadable.filename()
@@ -119,12 +120,12 @@ impl ModrinthItem
             version_id: version.id,
             downloadable,
             dependencies: version.dependencies,
-            downloaded: false,
+            // downloaded: false,
         })
     }
     
     pub async fn build_from_id<'a>(
-        version_requester: &http_handler::QueryRequest<'a, ModrinthVerQuery>,
+        version_requester: &http_handler::QueryRequest<ModrinthVerQuery>,
         project_id: &str
     ) -> Result<Self, ItemError>
     {
@@ -145,7 +146,7 @@ impl ModrinthItem
     }
 
     async fn build_from_version_id<'a>(
-        direct_requester: &http_handler::BasicRequest<'a>,
+        direct_requester: &http_handler::BasicRequest,
         version_id: &str
     ) -> Result<Self, ItemError>
     {
@@ -244,13 +245,13 @@ impl ModrinthFile {
 
     pub async fn download<'a>(
         &self,
-        downloader: &http_handler::Downloader<'a>,
+        downloader: &http_handler::Downloader,
     ) -> Result<(), http_handler::DownloadError>
     {
         downloader.verify_and_download(
             &self.url,
             &self.filename,
-            |b| self.hashes.check512(&Sha512::digest(b))
+            self.hashes.get_hash_checker(),
         ).await
     }
 }
@@ -273,8 +274,12 @@ struct ModrinthFileHash {
 }
 
 impl ModrinthFileHash {
-    pub fn check512(&self, other_hash: &Output<Sha512>) -> bool {
-        self.sha512.as_slice() == other_hash.as_slice()
+    // pub fn check512(&self, other_hash: &Output<Sha512>) -> bool {
+    //     self.sha512.as_slice() == other_hash.as_slice()
+    // }
+    pub fn get_hash_checker<'a>(&'a self) -> ModrinthHashCheck<'a>
+    {
+        ModrinthHashCheck::new(&self.sha512)
     }
 }
 
@@ -286,6 +291,33 @@ impl Clone for ModrinthFileHash {
     }
 }
 
+struct ModrinthHashCheck<'a>
+{
+    sha512: &'a Vec<u8>,
+    hasher: Sha512,
+}
+
+impl<'a> ModrinthHashCheck<'a>
+{
+    fn new(sha: &'a Vec<u8>) -> Self
+    {
+        Self {
+            sha512: sha,
+            hasher: Sha512::new()
+        }
+    }
+}
+
+impl<'a> HashCheck for ModrinthHashCheck<'a>
+{
+    fn add_chunk(&mut self, b: &bytes::Bytes) {
+        self.hasher.update(b);
+    }
+    fn compare(self) -> bool
+    {
+        self.hasher.finalize().as_slice() == self.sha512.as_slice()
+    }
+}
 
 #[derive(Serialize)]
 pub struct ModrinthVerQuery {
@@ -388,7 +420,7 @@ fn deserialize_only_required_deps<'de, D>(
 }
 
 async fn collect_mods<'a>(
-    requester: &http_handler::QueryRequest<'a, ModrinthVerQuery>,
+    requester: &http_handler::QueryRequest<ModrinthVerQuery>,
     ids: &Vec<String>,
 ) -> Vec<ModrinthItem>
 {
@@ -416,7 +448,7 @@ async fn collect_mods<'a>(
 
 pub async fn build_modlist_from_ids<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     ids: &Vec<String>,
 ) -> Result<Vec<ModrinthItem>, Box<dyn error::Error>>
 {
@@ -431,7 +463,7 @@ pub async fn build_modlist_from_ids<'a>(
     }
 
     let pid_requester = http_handler::QueryRequest::<ModrinthVerQuery>::build(
-        client,
+        client.clone(),
         query
     );
 
@@ -444,7 +476,7 @@ pub async fn build_modlist_from_ids<'a>(
     }
 
     // Get dependencies
-    let vid_requester = http_handler::BasicRequest::build(client);
+    let vid_requester = http_handler::BasicRequest::build(client.clone());
     let dep_requester = DependencyRequester::new(
         &pid_requester,
         &vid_requester
@@ -457,12 +489,12 @@ pub async fn build_modlist_from_ids<'a>(
 
 pub async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
-    let mut items = build_modlist_from_ids(conf, client, ids).await?;
+    let mut items = build_modlist_from_ids(conf, client.clone(), ids).await?;
 
     let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
     items = items::filter_items_by_tracker(items, &tracker);
@@ -475,10 +507,10 @@ pub async fn download_from_id_list<'a>(
     modrinth_msg(String::from("Downloading..."));
 
     // Download
-    let downloader = http_handler::Downloader::build(client, out_dir);
-    items::download_items(&downloader, &mut items).await;
+    let downloader = Arc::new(http_handler::Downloader::build(client, out_dir));
+    let successful = items::download_items(downloader, items).await?;
 
-    tracker.update(items);
+    tracker.update(successful);
     tracker.write_csv();
 
     modrinth_msg(String::from("Download finished"));
@@ -488,7 +520,7 @@ pub async fn download_from_id_list<'a>(
 
 pub async fn verify_ids_from_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
@@ -511,8 +543,8 @@ struct ModrinthProject
 }
 impl ModrinthProject
 {
-    async fn build<'a>(
-        requester: &http_handler::BasicRequest<'a>,
+    async fn build(
+        requester: &http_handler::BasicRequest,
         id: &str,
     ) -> reqwest::Result<Self>
     {
@@ -534,11 +566,12 @@ impl ModrinthProject
         );
     }
 }
+
 pub async fn list_projects(
-    client: &reqwest::Client,
+    client: reqwest::Client,
     id_list: &Vec<String>,
 ) -> () {
-    let pid_requester = http_handler::BasicRequest::build(client);
+    let pid_requester = http_handler::BasicRequest::build(client.clone());
 
     let items: Vec<_> = id_list
         .iter()
@@ -559,10 +592,9 @@ pub async fn list_projects(
     ()
 }
 
-
 pub async fn download_from_id<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     id: &str,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
@@ -574,7 +606,7 @@ pub async fn download_from_id<'a>(
 
 pub async fn verify_id<'a> (
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     id: &str,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>> {

@@ -36,17 +36,17 @@ async fn run(raw_conf: RawConfig) -> Result<(), Box<dyn Error>> {
             let conf = arguments::Config::build(&settings, raw_conf.options());
             let out_dir = get_out_dir(&conf)?;
             create_out_dir(&out_dir)?;
-            operation_download(&conf, &client, out_dir).await?
+            operation_download(&conf, client, out_dir).await?
         },
         AppMode::CheckMods(settings) => {
             let conf = arguments::Config::build(&settings, raw_conf.options());
             let out_dir = get_out_dir(&conf)?;
             create_out_dir(&out_dir)?;
-            operation_verify(&conf, &client, out_dir).await?;
+            operation_verify(&conf, client, out_dir).await?;
         }
         AppMode::ReadMods(settings) => {
             let conf = arguments::Config::build(&settings, raw_conf.options());
-            read_mods(&conf, &client).await?;
+            read_mods(&conf, client).await?;
         }
         AppMode::ClearMods => {
             match raw_conf.options().out_dir()

@@ -1,10 +1,11 @@
+use std::sync::Arc;
 use std::{collections::HashMap, error, path::PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize};
-use sha2::{digest::Output, Digest, Sha256};
+use sha2::{Digest, Sha256};
 use futures::future;
 
-use crate::http_handler::{self, HttpRequest, BasicRequest, QueryRequest};
+use crate::http_handler::{self, HttpRequest, BasicRequest, QueryRequest, HashCheck};
 use crate::arguments::{self, DownloadSettings};
 use crate::items::{self, Dependency, DependencyHandler, DependencyRequester, Item, ItemError};
 use crate::file_parse::TrackerFile;
@@ -26,7 +27,7 @@ pub struct HangarItem{
     platform: arguments::Platform,
     downloadable: HangarFile,
     dependencies: Vec<HangarReqDep>,
-    downloaded: bool,
+    // downloaded: bool,
 }
 impl items::Item for HangarItem
 {
@@ -48,19 +49,20 @@ impl items::Item for HangarItem
     fn item_id(&self) -> &'static str {
         HANGAR_ITEM_ID
     }
-    fn downloaded(&self) -> bool {
-        self.downloaded
-    }
-    async fn download<'a>(
-        &mut self,
-        downloader: &http_handler::Downloader<'a>,
-    ) -> ()
+    // fn downloaded(&self) -> bool {
+    //     self.downloaded
+    // }
+    async fn download(
+        &self,
+        downloader: &http_handler::Downloader,
+    ) -> Result<(), http_handler::DownloadError>
     {
-        match self.downloadable.download(downloader).await
-        {
-            Ok(_) => self.downloaded = true,
-            Err(err) => println!("{err}")
-        }
+        self.downloadable.download(downloader).await
+        // match self.downloadable.download(downloader).await
+        // {
+        //     Ok(_) => self.downloaded = true,
+        //     Err(err) => println!("{err}")
+        // }
     }
     async fn get_filtered_deps<'a, F>(
         &self,
@@ -119,12 +121,12 @@ impl HangarItem
             platform: platform.clone(),
             downloadable,
             dependencies,
-            downloaded: false
+            // downloaded: false
         })
     }
 
-    async fn build_from_id<'a>(
-        v_requester: &http_handler::QueryRequest<'a, HangarVerQuery>,
+    async fn build_from_id(
+        v_requester: &http_handler::QueryRequest<HangarVerQuery>,
         project_id: &str,
         platform: &arguments::Platform
     ) -> Result<Self, ItemError>
@@ -239,9 +241,41 @@ impl HangarFileInfo
     {
         &self.name
     }
-    fn verify_hash(&self, other: &Output<Sha256>) -> bool
+    // fn verify_hash(&self, other: &Output<Sha256>) -> bool
+    // {
+    //     self.sha256_hash.as_slice() == other.as_slice()
+    // }
+    fn get_hash_checker<'a>(&'a self) -> HangarHashCheck<'a>
     {
-        self.sha256_hash.as_slice() == other.as_slice()
+        HangarHashCheck::new(&self.sha256_hash)
+    }
+}
+
+struct HangarHashCheck<'a>
+{
+    sha512: &'a Vec<u8>,
+    hasher: Sha256,
+}
+
+impl<'a> HangarHashCheck<'a>
+{
+    fn new(sha: &'a Vec<u8>) -> Self
+    {
+        Self {
+            sha512: sha,
+            hasher: Sha256::new()
+        }
+    }
+}
+
+impl<'a> HashCheck for HangarHashCheck<'a>
+{
+    fn add_chunk(&mut self, b: &bytes::Bytes) {
+        self.hasher.update(b);
+    }
+    fn compare(self) -> bool
+    {
+        self.hasher.finalize().as_slice() == self.sha512.as_slice()
     }
 }
 
@@ -265,15 +299,15 @@ impl HangarFile
 
         Ok(Self { url, info })
     }
-    pub async fn download<'a>(
+    pub async fn download(
         &self,
-        downloader: &http_handler::Downloader<'a>,
+        downloader: &http_handler::Downloader,
     ) -> Result<(), http_handler::DownloadError>
     {
         downloader.verify_and_download(
             &self.url,
             &self.info.name(),
-            |b| { self.info.verify_hash(&Sha256::digest(b))}
+            self.info.get_hash_checker(),
         ).await
     }
     fn filename(&self) -> &PathBuf
@@ -378,8 +412,8 @@ struct HangarProject
 
 impl HangarProject
 {
-    async fn build<'a>(
-        requester: &BasicRequest<'a>,
+    async fn build(
+        requester: &BasicRequest,
         id: &str,
     ) -> reqwest::Result<Self>
     {
@@ -400,8 +434,8 @@ impl HangarProject
     }
 }
 
-async fn collect_plugins<'a>(
-    requester: &QueryRequest<'a, HangarVerQuery>,
+async fn collect_plugins(
+    requester: &QueryRequest<HangarVerQuery>,
     ids: &Vec<String>,
     platform: &arguments::Platform,
 ) -> Vec<HangarItem>
@@ -436,7 +470,7 @@ async fn collect_plugins<'a>(
 
 async fn plugin_list_from_ids<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: &reqwest::Client,
+    client: reqwest::Client,
     ids: &Vec<String>,
 ) -> Result<Vec<HangarItem>, Box<dyn error::Error>>
 {
@@ -456,7 +490,7 @@ async fn plugin_list_from_ids<'a>(
         query.set_channel(Some(String::from("release")));
     }
 
-    let pid_requester = QueryRequest::build(client, query);
+    let pid_requester = QueryRequest::build(client.clone(), query);
 
     let mut plugins = collect_plugins(&pid_requester, ids, platform).await;
 
@@ -465,7 +499,7 @@ async fn plugin_list_from_ids<'a>(
         return Ok(plugins)
     }
 
-    let vid_requester = BasicRequest::build(client);
+    let vid_requester = BasicRequest::build(client.clone());
     let dep_requester = DependencyRequester::new(
         &pid_requester,
         &vid_requester,
@@ -478,10 +512,10 @@ async fn plugin_list_from_ids<'a>(
 }
 
 pub async fn list_projects(
-    client: &reqwest::Client,
+    client: reqwest::Client,
     id_list: &Vec<String>,
 ) -> () {
-    let pid_requester = http_handler::BasicRequest::build(client);
+    let pid_requester = http_handler::BasicRequest::build(client.clone());
 
     let items: Vec<_> = id_list
         .iter()
@@ -504,12 +538,12 @@ pub async fn list_projects(
 
 pub async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
-    let mut items = plugin_list_from_ids(conf, client, ids).await?;
+    let mut items = plugin_list_from_ids(conf, client.clone(), ids).await?;
 
     let mut tracker: TrackerFile = TrackerFile::build(&out_dir)?;
     items = items::filter_items_by_tracker(items, &tracker);
@@ -522,10 +556,10 @@ pub async fn download_from_id_list<'a>(
     println!("{}", hangar_msg("Downloading..."));
 
     // Download
-    let downloader = http_handler::Downloader::build(client, out_dir);
-    items::download_items(&downloader, &mut items).await;
+    let downloader = Arc::new(http_handler::Downloader::build(client.clone(), out_dir));
+    let successful = items::download_items(downloader, items).await?;
 
-    tracker.update(items);
+    tracker.update(successful);
     tracker.write_csv();
 
     println!("{}", hangar_msg("Download finished"));
@@ -535,7 +569,7 @@ pub async fn download_from_id_list<'a>(
 
 pub async fn verify_ids_from_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     ids: &Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
@@ -550,7 +584,7 @@ pub async fn verify_ids_from_list<'a>(
 
 pub async fn download_from_id<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     id: &str,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
@@ -562,7 +596,7 @@ pub async fn download_from_id<'a>(
 
 pub async fn verify_id<'a> (
     conf: &arguments::Config<'a, &DownloadSettings>,
-    client: & reqwest::Client,
+    client: reqwest::Client,
     id: &str,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>> {

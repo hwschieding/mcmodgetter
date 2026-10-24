@@ -210,25 +210,22 @@ impl TrackerFile
     {
         for item in modlist
         {
-            if item.downloaded()
-            {
-                self.delete_entry_file(item.id());
+            self.delete_entry_file(item.id());
 
-                // let filename = directory.join(m.filename());
+            // let filename = directory.join(m.filename());
 
-                self.entries.insert(item.id().to_string(), TrackerEntry::new_entry(
-                    item.version_id().to_string(),
-                    item.item_id().to_string(),
-                    match self.filepath.parent()
-                    {
-                        Some(p) => p,
-                        None => {
-                            print_tracker_error(String::from("Dunno how this one happened."));
-                            return ()
-                        }   
-                    }.join(item.filename())
-                ));
-            }
+            self.entries.insert(item.id().to_string(), TrackerEntry::new_entry(
+                item.version_id().to_string(),
+                item.item_id().to_string(),
+                match self.filepath.parent()
+                {
+                    Some(p) => p,
+                    None => {
+                        print_tracker_error(String::from("Dunno how this one happened."));
+                        return ()
+                    }   
+                }.join(item.filename())
+            ));
         }
     }
 

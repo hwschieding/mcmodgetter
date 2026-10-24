@@ -1,10 +1,11 @@
-use std::{error, fmt, fs, io::{self, Write}, path::{Path, PathBuf}};
+use std::{error, fmt, path::{Path, PathBuf}};
 
+use tokio::{fs, io::{self, AsyncWriteExt}};
 use reqwest::Response;
 use serde::{Deserialize, Deserializer, Serialize, de::{DeserializeOwned, Error}};
+use futures_util::StreamExt;
 
-use crate::http_handler;
-use crate::arguments;
+use crate::{arguments};
 
 static DOWNLOAD_SIG: &'static str = "DOWNLOAD";
 
@@ -88,20 +89,25 @@ pub trait HttpRequest
     }
 }
 
-pub struct BasicRequest<'a>
-{
-    client: &'a reqwest::Client
+pub trait HashCheck {
+    fn add_chunk(&mut self, b: &bytes::Bytes);
+    fn compare(self) -> bool;
 }
 
-impl<'a> BasicRequest<'a>
+pub struct BasicRequest
 {
-    pub fn build(client: &'a reqwest::Client) -> BasicRequest<'a>
+    client: reqwest::Client
+}
+
+impl BasicRequest
+{
+    pub fn build(client: reqwest::Client) -> BasicRequest
     {
         BasicRequest { client }
     }
 }
 
-impl<'a> HttpRequest for BasicRequest<'a>
+impl HttpRequest for BasicRequest
 {
     async fn get_serialized_response(
         &self,
@@ -173,17 +179,17 @@ impl QArrayBuilder
     }
 }
 
-pub struct QueryRequest<'a, T>
+pub struct QueryRequest<T>
 {
-    client: &'a reqwest::Client,
+    client: reqwest::Client,
     query: T,
     extra_queries: Vec<QueryParam>,
 }
 
-impl<'a, T> QueryRequest<'a, T>
+impl<T> QueryRequest<T>
 where T: Serialize + Query
 {
-    pub fn build(client: &'a reqwest::Client, query: T) -> QueryRequest<'a, T>
+    pub fn build(client: reqwest::Client, query: T) -> QueryRequest<T>
     {
         QueryRequest { client, query , extra_queries: Vec::new() }
     }
@@ -193,7 +199,7 @@ where T: Serialize + Query
     }
 }
 
-impl<'a, T> HttpRequest for QueryRequest<'a, T>
+impl<T> HttpRequest for QueryRequest<T>
 where
     T: Serialize,
 {
@@ -238,14 +244,14 @@ impl QueryParam
     }
 }
 
-pub struct Downloader<'a>
+pub struct Downloader
 {
-    client: &'a reqwest::Client,
+    client: reqwest::Client,
     output_directory: PathBuf,
 }
-impl<'a> Downloader<'a>
+impl Downloader
 {
-    pub fn build(client: &'a reqwest::Client, out_dir: PathBuf) -> Self
+    pub fn build(client: reqwest::Client, out_dir: PathBuf) -> Self
     {
         Downloader { client, output_directory: (out_dir) }
     }
@@ -255,55 +261,97 @@ impl<'a> Downloader<'a>
         format!("[{}] {}", DOWNLOAD_SIG, s)
     }
 
-    async fn retrieve_bytes(&self, url: &str) -> reqwest::Result<bytes::Bytes>
-    {
-        self.client.get(url)
-            .send()
-            .await?
-            .bytes()
-            .await
-    }
+    // async fn retrieve_bytes(&self, url: &str) -> reqwest::Result<bytes::Bytes>
+    // {
+    //     self.client.get(url)
+    //         .send()
+    //         .await?
+    //         .bytes()
+    //         .await
+    // }
 
-    fn write_to_file(&self, bytes: &[u8], filename: &Path) -> Result<(), DownloadError>
-    {
-        match try_path_join(&self.output_directory, filename)
-        {
-            Some(p) => {
-                fs::File::create(&p)?.write_all(bytes)?;
-                println!("{} '{}'", Self::msg("Successfully downloaded"), filename.display());
-                Ok(())
-            }
-            None => Err(DownloadError::Unknown(format!("Filename '{}' unsafe", filename.display())))
-        }
-    }
+    // fn write_to_file(&self, bytes: &[u8], filename: &Path) -> Result<(), DownloadError>
+    // {
+    //     match try_path_join(&self.output_directory, filename)
+    //     {
+    //         Some(p) => {
+    //             fs::File::create(&p)?.write_all(bytes)?;
+    //             println!("{} '{}'", Self::msg("Successfully downloaded"), filename.display());
+    //             Ok(())
+    //         }
+    //         None => Err(DownloadError::Unknown(format!("Filename '{}' unsafe", filename.display())))
+    //     }
+    // }
 
-    pub async fn download(&self, url: &str, filename: &Path) -> Result<(), DownloadError>
-    {
-        let bytes = self.retrieve_bytes(url).await?;
+    // pub async fn download(&self, url: &str, filename: &Path) -> Result<(), DownloadError>
+    // {
+    //     let bytes = self.retrieve_bytes(url).await?;
         
-        self.write_to_file(&bytes, filename)?;
+    //     self.write_to_file(&bytes, filename)?;
 
+    //     Ok(())
+    // }
+
+    async fn try_stream_download<T>(
+        url_response: reqwest::Response,
+        file: &mut fs::File,
+        checker: &mut T
+    ) -> Result<(), DownloadError>
+    where
+        T: HashCheck
+    {
+        let mut stream = url_response.bytes_stream();
+        while let Some(chunk) = stream.next().await
+        {
+            let chunk = chunk?;
+            checker.add_chunk(&chunk);
+            file.write_all(&chunk).await?;
+        }
         Ok(())
     }
 
-    pub async fn verify_and_download<F>(
+    pub async fn verify_and_download(
         &self,
         url: &str,
         filename: &Path,
-        verify: F
+        mut checker: impl HashCheck,
     ) -> Result<(), DownloadError>
-    where
-        F: Fn(&[u8]) -> bool
+    // where
+    //     T: HashCheck
     {
-        let bytes = self.retrieve_bytes(url).await?;
+        // let bytes = self.retrieve_bytes(url).await?;
 
-        if verify(&bytes)
+        let res = self.client
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+        ;
+
+        let dest_path = try_path_join(&self.output_directory, filename)?;
+        let temp_path = dest_path.with_added_extension(".tmp");
+
+        let mut file = fs::File::create(&temp_path).await?;
+
+        if let Err(e) = Self::try_stream_download(res, &mut file, &mut checker).await
         {
-            self.write_to_file(&bytes, filename)?;
+            fs::remove_file(&temp_path).await?;
+            return Err(e)
+        }
+
+        file.flush().await?;
+        drop(file);
+
+        if checker.compare()
+        {
+            fs::rename(temp_path, &dest_path).await?;
+            println!("{} '{}'", Self::msg("Successfully downloaded"), dest_path.display());
             Ok(())
         }
-        else {
-            Err(http_handler::DownloadError::BadVerify(
+        else
+        {
+            fs::remove_file(temp_path).await?;
+            Err(DownloadError::BadVerify(
                 String::from("Download could not be verified")
             ))
         }
@@ -319,8 +367,16 @@ pub fn deserialize_hex_str_to_bytes<'de, D>(
     hex::decode(hex_data).map_err(D::Error::custom)
 }
 
-fn try_path_join(base: &PathBuf, new_comp: &Path) -> Option<PathBuf>
-{
-    
-    if new_comp.is_relative() { Some(base.join(new_comp)) } else { None }
+fn try_path_join(base: &PathBuf, new_comp: &Path) -> Result<PathBuf, DownloadError>
+{    
+    if new_comp.is_relative()
+    {
+        Ok(base.join(new_comp))
+    }
+    else
+    {
+        Err(DownloadError::Unknown(
+            format!("Filename '{}' is unsafe", new_comp.display())
+        ))
+    }
 }

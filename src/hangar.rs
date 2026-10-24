@@ -4,6 +4,7 @@ use std::{collections::HashMap, error, path::PathBuf};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use futures::future;
+use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::http_handler::{self, HttpRequest, BasicRequest, QueryRequest, HashCheck, Query};
 use crate::arguments::{self, DownloadSettings};
@@ -437,9 +438,9 @@ impl HangarProject
 }
 
 async fn collect_plugins(
-    requester: &QueryRequest<HangarVerQuery>,
-    ids: &Vec<String>,
-    platform: &arguments::Platform,
+    requester: Arc<QueryRequest<HangarVerQuery>>,
+    ids: Vec<String>,
+    platform: Arc<arguments::Platform>,
 ) -> Vec<HangarItem>
 {
     fn err_or_return(res: Result<HangarItem, ItemError>) -> Option<HangarItem>
@@ -452,39 +453,78 @@ async fn collect_plugins(
                 )));
                 Some(i)
             }
-            Err(e) => { println!("{e}"); None}
+            Err(e) => { eprintln!("{e}"); None}
         }
     }
 
-    let mut plugins = Vec::new();
+    let mut set = JoinSet::new();
+    let semaphore = Arc::new(Semaphore::new(8));
     for id in ids
     {
-        plugins.push(HangarItem::build_from_id(requester, id, platform))
-    }
-    future::join_all(plugins).await
-        .into_iter()
-        .filter_map(|result|
+        let sem_clone = Arc::clone(&semaphore);
+        let req_clone = Arc::clone(&requester);
+        let plat_clone = Arc::clone(&platform);
+
+        set.spawn(async move
         {
-            err_or_return(result)
-        })
-        .collect::<Vec<_>>()
+            let _permit = match sem_clone.acquire().await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Async HTTP request failed: {e}");
+                    return None
+                }
+            };
+
+            err_or_return(HangarItem::build_from_id(
+                &req_clone,
+                &id,
+                &plat_clone
+            ).await)
+        });
+    }
+
+    let mut items = Vec::<HangarItem>::new();
+
+    while let Some(i_res) = set.join_next().await
+    {
+        if let Ok(Some(i)) = i_res
+        {
+            items.push(i);
+        }
+    }
+
+    items
+    // let mut plugins = Vec::new();
+    // for id in ids
+    // {
+    //     plugins.push(HangarItem::build_from_id(requester, id, platform))
+    // }
+    // future::join_all(plugins).await
+    //     .into_iter()
+    //     .filter_map(|result|
+    //     {
+    //         err_or_return(result)
+    //     })
+        // .collect::<Vec<_>>()
 }
 
 async fn plugin_list_from_ids<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: reqwest::Client,
-    ids: &Vec<String>,
+    ids: Vec<String>,
 ) -> Result<Vec<HangarItem>, Box<dyn error::Error>>
 {
     let platform = conf.settings()
         .platform()
         .try_get_top()
         .ok_or("Plugin platform must be specified for Hangar queries")?
+        .clone()
     ;
 
     let mut query = HangarVerQuery::build_query(
         conf.settings().version_search(),
-        &vec![platform.clone()],
+        &vec![platform.clone()]
     ).ok_or("Unable to build query")?;
 
     if conf.opts().release_only()
@@ -492,9 +532,9 @@ async fn plugin_list_from_ids<'a>(
         query.set_channel(http_handler::Channels::Release);
     }
 
-    let pid_requester = QueryRequest::build(client.clone(), query);
-
-    let mut plugins = collect_plugins(&pid_requester, ids, platform).await;
+    let pid_requester = Arc::new(QueryRequest::build(client.clone(), query));
+    let platform = Arc::new(platform);
+    let mut plugins = collect_plugins(Arc::clone(&pid_requester), ids, platform).await;
 
     if conf.opts().skip_deps()
     {
@@ -541,7 +581,7 @@ pub async fn list_projects(
 pub async fn download_from_id_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: reqwest::Client,
-    ids: &Vec<String>,
+    ids: Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {
@@ -572,7 +612,7 @@ pub async fn download_from_id_list<'a>(
 pub async fn verify_ids_from_list<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: reqwest::Client,
-    ids: &Vec<String>,
+    ids: Vec<String>,
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
     let items = plugin_list_from_ids(conf, client, ids).await?;
@@ -591,7 +631,7 @@ pub async fn download_from_id<'a>(
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>>
 {   
-    download_from_id_list(conf, client, &vec![id.to_string()], out_dir).await?;
+    download_from_id_list(conf, client, vec![id.to_string()], out_dir).await?;
 
     Ok(())
 }
@@ -603,7 +643,7 @@ pub async fn verify_id<'a> (
     out_dir: PathBuf
 ) -> Result<(), Box<dyn error::Error>> {
     
-    verify_ids_from_list(conf, client, &vec![id.to_string()], out_dir).await?;
+    verify_ids_from_list(conf, client, vec![id.to_string()], out_dir).await?;
 
     Ok(())
 }

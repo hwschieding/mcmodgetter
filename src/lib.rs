@@ -93,7 +93,7 @@ async fn modrinth_download<'a>(
     {
         arguments::IdSupplier::File(file) => 
         {
-            modrinth::download_from_id_list(conf, client, &get_ids(file)?.modrinth(), out_dir).await
+            modrinth::download_from_id_list(conf, client, get_ids(file)?.modrinth(), out_dir).await
         },
         arguments::IdSupplier::Id(id) =>
         {
@@ -112,7 +112,7 @@ async fn hangar_download<'a>(
     {
         arguments::IdSupplier::File(file) => 
         {
-            hangar::download_from_id_list(conf, client, &get_ids(file)?.hangar(), out_dir).await
+            hangar::download_from_id_list(conf, client, get_ids(file)?.hangar(), out_dir).await
         },
         arguments::IdSupplier::Id(id) =>
             hangar::download_from_id(conf, client, id, out_dir).await
@@ -140,7 +140,7 @@ async fn modrinth_verify<'a>(
 {
     if let arguments::IdSupplier::File(file) = conf.settings().supplier()
     {
-        modrinth::verify_ids_from_list(conf, client, &get_ids(file)?.modrinth(), out_dir).await
+        modrinth::verify_ids_from_list(conf, client, get_ids(file)?.modrinth(), out_dir).await
     }
     else if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
     {
@@ -157,7 +157,7 @@ async fn hangar_verify<'a>(
 {
     if let arguments::IdSupplier::File(file) = conf.settings().supplier()
     {
-        hangar::verify_ids_from_list(conf, client, &get_ids(file)?.hangar(), out_dir).await
+        hangar::verify_ids_from_list(conf, client, get_ids(file)?.hangar(), out_dir).await
     }
     else if let arguments::IdSupplier::Id(id) = conf.settings().supplier()
     {

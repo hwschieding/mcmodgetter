@@ -119,12 +119,16 @@ impl HttpRequest for BasicRequest
             .await
     }
 }
+pub enum Channels
+{
+    None,
+    Release,
+}
 
-#[derive(Serialize)]
-pub struct EmptyQuery {}
-impl Query for EmptyQuery {}
-
-pub trait Query {
+pub trait Query : Sized
+{
+    fn build_query(user_version: &String, user_platforms: &Vec<arguments::Platform>) -> Option<Self>;
+    fn set_channel(&mut self, new: Channels);
     fn build_version_array(user_params: &String) -> String {
         let mut params = user_params.split(",");
         let mut res = QArrayBuilder::new_from(
@@ -214,11 +218,6 @@ where
         {
             builder = builder.query(&[prm.get()]);
         }
-
-        // let request = builder.build()?;
-        // println!("Final URL: {}", request.url());
-
-        // self.client.execute(request).await
         builder.send().await
     }
 }
@@ -260,38 +259,6 @@ impl Downloader
     {
         format!("[{}] {}", DOWNLOAD_SIG, s)
     }
-
-    // async fn retrieve_bytes(&self, url: &str) -> reqwest::Result<bytes::Bytes>
-    // {
-    //     self.client.get(url)
-    //         .send()
-    //         .await?
-    //         .bytes()
-    //         .await
-    // }
-
-    // fn write_to_file(&self, bytes: &[u8], filename: &Path) -> Result<(), DownloadError>
-    // {
-    //     match try_path_join(&self.output_directory, filename)
-    //     {
-    //         Some(p) => {
-    //             fs::File::create(&p)?.write_all(bytes)?;
-    //             println!("{} '{}'", Self::msg("Successfully downloaded"), filename.display());
-    //             Ok(())
-    //         }
-    //         None => Err(DownloadError::Unknown(format!("Filename '{}' unsafe", filename.display())))
-    //     }
-    // }
-
-    // pub async fn download(&self, url: &str, filename: &Path) -> Result<(), DownloadError>
-    // {
-    //     let bytes = self.retrieve_bytes(url).await?;
-        
-    //     self.write_to_file(&bytes, filename)?;
-
-    //     Ok(())
-    // }
-
     async fn try_stream_download<T>(
         url_response: reqwest::Response,
         file: &mut fs::File,
@@ -316,10 +283,7 @@ impl Downloader
         filename: &Path,
         mut checker: impl HashCheck,
     ) -> Result<(), DownloadError>
-    // where
-    //     T: HashCheck
     {
-        // let bytes = self.retrieve_bytes(url).await?;
 
         let res = self.client
             .get(url)

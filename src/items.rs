@@ -1,4 +1,12 @@
-use std::{collections::HashSet, error, fmt, io, path::{Path, PathBuf}, sync::Arc};
+use std::{
+    collections::HashSet,
+    error,
+    fmt,
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Instant,
+};
 use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::{file_parse::TrackerFile, http_handler};
@@ -239,17 +247,6 @@ where
     res
 }
 
-
-    // let mut download_futures = Vec::new();
-
-    // for m in items
-    // {
-    //     download_futures.push(m.download(downloader));
-    // }
-
-    // future::join_all(download_futures).await;
-    // ()
-
 pub async fn download_items<T>(
     downloader: Arc<http_handler::Downloader>,
     items: Vec<T>,
@@ -261,6 +258,7 @@ where
     let mut set = JoinSet::new();
     let semaphore = Arc::new(Semaphore::new(8));
 
+    let start = Instant::now();
     for m in items
     {
         let sem_clone = Arc::clone(&semaphore);
@@ -295,6 +293,10 @@ where
             completed_downloads.push(i);
         }
     }
+
+    let duration = start.elapsed();
+
+    println!("Done in {}ms\n", duration.as_millis());
 
     Ok(completed_downloads)
 }

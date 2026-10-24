@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use futures::future;
 
-use crate::http_handler::{self, HttpRequest, BasicRequest, QueryRequest, HashCheck};
+use crate::http_handler::{self, HttpRequest, BasicRequest, QueryRequest, HashCheck, Query};
 use crate::arguments::{self, DownloadSettings};
 use crate::items::{self, Dependency, DependencyHandler, DependencyRequester, Item, ItemError};
 use crate::file_parse::TrackerFile;
@@ -27,7 +27,6 @@ pub struct HangarItem{
     platform: arguments::Platform,
     downloadable: HangarFile,
     dependencies: Vec<HangarReqDep>,
-    // downloaded: bool,
 }
 impl items::Item for HangarItem
 {
@@ -49,20 +48,12 @@ impl items::Item for HangarItem
     fn item_id(&self) -> &'static str {
         HANGAR_ITEM_ID
     }
-    // fn downloaded(&self) -> bool {
-    //     self.downloaded
-    // }
     async fn download(
         &self,
         downloader: &http_handler::Downloader,
     ) -> Result<(), http_handler::DownloadError>
     {
         self.downloadable.download(downloader).await
-        // match self.downloadable.download(downloader).await
-        // {
-        //     Ok(_) => self.downloaded = true,
-        //     Err(err) => println!("{err}")
-        // }
     }
     async fn get_filtered_deps<'a, F>(
         &self,
@@ -121,7 +112,6 @@ impl HangarItem
             platform: platform.clone(),
             downloadable,
             dependencies,
-            // downloaded: false
         })
     }
 
@@ -373,24 +363,36 @@ impl HangarVerQuery
     {
         p.to_string()
     }
+}
 
-    fn build_query(user_version: &String, user_platform: &arguments::Platform) -> Self
+impl http_handler::Query for HangarVerQuery
+{
+    fn build_query(
+        user_version: &String,
+        user_platforms: &Vec<arguments::Platform>
+    ) -> Option<Self>
     {
-        Self {
-            platform: Self::get_plaform(user_platform),
+        let first_platform = match user_platforms.get(0)
+        {
+            Some(p) => p,
+            None => {return None},
+        };
+
+        Some(Self{
+            platform: Self::get_plaform(first_platform),
             platform_version: Self::get_version(user_version),
             limit: 1,
             channel: None,
+        })
+    }
+    fn set_channel(&mut self, new: http_handler::Channels) {
+        self.channel = match new
+        {
+            http_handler::Channels::None => None,
+            http_handler::Channels::Release => Some(String::from("release")),
         }
     }
-
-    fn set_channel(&mut self, new: Option<String>) -> ()
-    {
-        self.channel = new;
-    }
 }
-
-impl http_handler::Query for HangarVerQuery {}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all="camelCase")]
@@ -482,12 +484,12 @@ async fn plugin_list_from_ids<'a>(
 
     let mut query = HangarVerQuery::build_query(
         conf.settings().version_search(),
-        platform
-    );
+        &vec![platform.clone()],
+    ).ok_or("Unable to build query")?;
 
     if conf.opts().release_only()
     {
-        query.set_channel(Some(String::from("release")));
+        query.set_channel(http_handler::Channels::Release);
     }
 
     let pid_requester = QueryRequest::build(client.clone(), query);

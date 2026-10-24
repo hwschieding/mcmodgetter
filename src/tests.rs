@@ -1,5 +1,7 @@
 use std::assert_matches;
 
+use crate::http_handler::Query;
+
 use super::*;
 
 #[test]
@@ -113,7 +115,7 @@ fn modrinth_query_building()
         _ => { assert!(false); return; }
     };    
 
-    let v_query = modrinth::ModrinthVerQuery::build_query(settings.version_search(), settings.platform().get());
+    let v_query = modrinth::ModrinthVerQuery::build_query(settings.version_search(), settings.platform().get()).unwrap();
     assert_eq!(v_query.loader(), "[\"forge\",\"fabric\"]");
     assert_eq!(v_query.mcvs(), "[\"1.20.1\",\"1.20.2\"]");
 }

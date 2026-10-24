@@ -30,7 +30,6 @@ pub struct ModrinthItem
     version_id: String,
     downloadable: ModrinthFile,
     dependencies: Vec<ModrinthReqDep>,
-    // downloaded: bool,
 }
 impl Item for ModrinthItem
 {
@@ -43,11 +42,6 @@ impl Item for ModrinthItem
     ) -> Result<(), http_handler::DownloadError>
     {
         self.downloadable.download(downloader).await
-        // match self.downloadable.download(downloader).await
-        // {
-        //     Err(err) => println!("{}", err),
-        //     Ok(_) => self.downloaded = true,
-        // }
     }
     fn id(&self) -> &String
     {
@@ -61,10 +55,6 @@ impl Item for ModrinthItem
     {
         &self.version_title
     }
-    // fn downloaded(&self) -> bool
-    // {
-    //     self.downloaded
-    // }
     fn filename(&self) -> &PathBuf
     {
         self.downloadable.filename()
@@ -120,7 +110,6 @@ impl ModrinthItem
             version_id: version.id,
             downloadable,
             dependencies: version.dependencies,
-            // downloaded: false,
         })
     }
     
@@ -329,33 +318,37 @@ pub struct ModrinthVerQuery {
 }
 
 impl ModrinthVerQuery {
-    pub fn build_query(
-        user_mcvs: &String,
-        user_loader: &Vec<arguments::Platform>
-    ) -> ModrinthVerQuery {
-        let game_versions= Self::build_version_array(user_mcvs);
-        let loaders= Self::build_platform_array(user_loader);
-        ModrinthVerQuery {
-            game_versions,
-            loaders,
-            include_changelog: false,
-            limit: 1,
-            version_type: None,
-        }
-    }
     pub fn mcvs(&self) -> &str {
         &self.game_versions.as_str()
     }
     pub fn loader(&self) -> &str {
         &self.loaders.as_str()
     }
-    pub fn set_version_type(&mut self, new: Option<String>) -> ()
-    {
-        self.version_type = new;
-    }
 }
 
-impl Query for ModrinthVerQuery {}
+impl Query for ModrinthVerQuery {
+    fn build_query(
+        user_mcvs: &String,
+        user_loader: &Vec<arguments::Platform>
+    ) -> Option<Self> {
+        let game_versions= Self::build_version_array(user_mcvs);
+        let loaders= Self::build_platform_array(user_loader);
+        Some(Self {
+            game_versions,
+            loaders,
+            include_changelog: false,
+            limit: 1,
+            version_type: None,
+        })
+    }
+    fn set_channel(&mut self, new: http_handler::Channels) {
+        self.version_type = match new
+        {
+            http_handler::Channels::None => None,
+            http_handler::Channels::Release => Some(String::from("release")),
+        }
+    }
+}
 
 #[derive(Deserialize)]
 pub struct ModrinthDependency {
@@ -455,11 +448,11 @@ pub async fn build_modlist_from_ids<'a>(
     let mut query = ModrinthVerQuery::build_query(
         conf.settings().version_search(),
         conf.settings().platform().get(),
-    );
+    ).ok_or("Unable to build query")?;
 
     if conf.opts().release_only()
     {
-        query.set_version_type(Some(String::from("release")));
+        query.set_channel(http_handler::Channels::Release);
     }
 
     let pid_requester = http_handler::QueryRequest::<ModrinthVerQuery>::build(

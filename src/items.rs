@@ -118,6 +118,14 @@ pub trait Item : Sized
     ;
 }
 
+pub trait ItemBuilder
+{
+    type I: Item;
+    #[allow(async_fn_in_trait)]
+    fn build_item(&self, id: &str) -> impl std::future::Future<Output = Result<Self::I, ItemError>> + std::marker::Send;
+    fn get_successful(res: Result<Self::I, ItemError>) -> Option<Self::I>;
+}
+
 pub trait Dependency
 {
     fn project_id(&self) -> Option<&String>;
@@ -221,6 +229,46 @@ where
         }
     }
 }
+
+pub async fn collect_items<Builder>(
+    builder: Arc<Builder>,
+    ids: Vec<String>,
+) -> Vec<Builder::I>
+where
+    Builder: ItemBuilder + Sync + std::marker::Send + 'static,
+    <Builder as ItemBuilder>::I: std::marker::Send,
+{
+    let mut set = JoinSet::new();
+    let semaphore = Arc::new(Semaphore::new(8));
+
+    for id in ids
+    {
+        let sem_clone = Arc::clone(&semaphore);
+        let builder_clone = Arc::clone(&builder);
+        set.spawn(async move 
+        {
+            let _permit = match sem_clone.acquire().await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Async HTTP request failed: {e}");
+                    return None;
+                }
+            };
+            Builder::get_successful(builder_clone.build_item(&id).await)
+        });
+    }
+    let mut items = Vec::<Builder::I>::new();
+    while let Some(i_res) = set.join_next().await
+    {
+        if let Ok(Some(i)) = i_res
+        {
+            items.push(i);
+        }
+    }
+    items
+}
+
 
 pub fn filter_items_by_tracker<T>(
     items: Vec<T>,

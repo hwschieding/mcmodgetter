@@ -4,12 +4,11 @@ use std::path::{PathBuf};
 use futures::future;
 use serde::{Serialize, Deserialize, Deserializer};
 use sha2::{Sha512, Digest};
-use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::arguments::{DownloadSettings};
 use crate::file_parse::TrackerFile;
 use crate::http_handler::{Downloader, HashCheck, Query, QueryRequest};
-use crate::items::{ItemError, DependencyHandler, DependencyRequester};
+use crate::items::{DependencyHandler, DependencyRequester, ItemBuilder, ItemError};
 use crate::{arguments, http_handler::{self, HttpRequest}, items::{self, Item}};
 
 static MODRINTH_URL: &'static str = "https://api.modrinth.com/v2";
@@ -179,6 +178,42 @@ impl ModrinthItem
     ) -> Vec<Self>
     {
         self.get_filtered_deps(requester, |_| { true }).await
+    }
+}
+
+struct ModrinthItemBuilder
+{
+    requester: http_handler::QueryRequest<ModrinthVerQuery>,
+}
+impl ModrinthItemBuilder
+{
+    fn new(req: http_handler::QueryRequest<ModrinthVerQuery>) -> Self
+    {
+        Self {requester: req}
+    }
+    fn get_requester(&self) -> &QueryRequest<ModrinthVerQuery>
+    {
+        &self.requester
+    }
+}
+impl ItemBuilder for ModrinthItemBuilder
+{
+    type I = ModrinthItem;
+    async fn build_item(&self, id: &str) -> Result<Self::I, ItemError> {
+        ModrinthItem::build_from_id(&self.requester, id).await    
+    }
+    fn get_successful(res: Result<Self::I, ItemError>) -> Option<Self::I> {
+        match res
+        {
+            Ok(i) => {
+                println!("[{MODRINTH_SIG}] Found version '{}'", i.version_title());
+                Some(i)
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                None
+            }
+        }
     }
 }
 
@@ -413,69 +448,6 @@ fn deserialize_only_required_deps<'de, D>(
     )
 }
 
-async fn collect_mods<'a>(
-    requester: Arc<http_handler::QueryRequest<ModrinthVerQuery>>,
-    ids: Vec<String>,
-) -> Vec<ModrinthItem>
-{
-    let mut set = JoinSet::new();
-    let semaphore = Arc::new(Semaphore::new(8));
-
-    for id in ids
-    {
-        let sem_clone = Arc::clone(&semaphore);
-        let req_clone = Arc::clone(&requester);
-        set.spawn(async move 
-        {
-            let _permit = match sem_clone.acquire().await
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Async HTTP request failed: {e}");
-                    return None;
-                }
-            };
-            match ModrinthItem::build_from_id(&req_clone, &id).await
-            {
-                Ok(i) => {
-                    modrinth_msg(format!("Found '{}'", i.version_title()));
-                    Some(i)
-                },
-                Err(e) => { eprintln!("{e}"); None }
-            }
-        });
-    }
-    let mut items = Vec::<ModrinthItem>::new();
-    while let Some(i_res) = set.join_next().await
-    {
-        if let Ok(Some(i)) = i_res
-        {
-            items.push(i);
-        }
-    }
-    items
-    // let mut mods = Vec::new();
-    // for id in ids {
-    //     mods.push(ModrinthItem::build_from_id(requester, id));
-    // }
-    // future::join_all(mods)
-    // .await
-    // .into_iter()
-    // .filter_map(|m_res| {
-    //     match m_res {
-    //         Err(e) => {
-    //             println!("{e}");
-    //             None
-    //         }
-    //         Ok(m) => {
-    //             modrinth_msg(format!("Found '{}'", m.version_title()));
-    //             Some(m)
-    //         }
-    //     }
-    // })
-    // .collect()
-}
-
 pub async fn build_modlist_from_ids<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: reqwest::Client,
@@ -492,13 +464,14 @@ pub async fn build_modlist_from_ids<'a>(
         query.set_channel(http_handler::Channels::Release);
     }
 
-    let pid_requester = Arc::new(QueryRequest::<ModrinthVerQuery>::build(
+    let pid_requester = QueryRequest::<ModrinthVerQuery>::build(
         client.clone(),
         query
-    ));
+    );
+    let builder = Arc::new(ModrinthItemBuilder::new(pid_requester));
 
     // Get modlist
-    let mut items = collect_mods(Arc::clone(&pid_requester), ids).await;
+    let mut items = items::collect_items(Arc::clone(&builder), ids).await;
 
     if conf.opts().skip_deps()
     {
@@ -508,7 +481,7 @@ pub async fn build_modlist_from_ids<'a>(
     // Get dependencies
     let vid_requester = http_handler::BasicRequest::build(client.clone());
     let dep_requester = DependencyRequester::new(
-        &pid_requester,
+        builder.get_requester(),
         &vid_requester
     );
     let mut dep_handler = DependencyHandler::build(&mut items);

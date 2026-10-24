@@ -4,11 +4,10 @@ use std::{collections::HashMap, error, path::PathBuf};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use futures::future;
-use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::http_handler::{self, HttpRequest, BasicRequest, QueryRequest, HashCheck, Query};
 use crate::arguments::{self, DownloadSettings};
-use crate::items::{self, Dependency, DependencyHandler, DependencyRequester, Item, ItemError};
+use crate::items::{self, Dependency, DependencyHandler, DependencyRequester, Item, ItemBuilder, ItemError};
 use crate::file_parse::TrackerFile;
 
 static HANGAR_URL: &'static str = "https://hangar.papermc.io/api/v1";
@@ -158,6 +157,43 @@ impl HangarItem
         {
             Ok(i) => Some(i),
             Err(_) => None
+        }
+    }
+}
+
+struct HangarItemBuilder
+{
+    requester: http_handler::QueryRequest<HangarVerQuery>,
+    platform: arguments::Platform,
+}
+impl HangarItemBuilder
+{
+    fn new(req: http_handler::QueryRequest<HangarVerQuery>, plat: arguments::Platform) -> Self
+    {
+        Self{ requester: req, platform: plat }
+    }
+    fn requester(&self) -> &http_handler::QueryRequest<HangarVerQuery>
+    {
+        &self.requester
+    }
+}
+impl ItemBuilder for HangarItemBuilder {
+    type I = HangarItem;
+
+    async fn build_item(&self, id: &str) -> Result<Self::I, ItemError> {
+        HangarItem::build_from_id(&self.requester, id, &self.platform).await
+    }
+    fn get_successful(res: Result<Self::I, ItemError>) -> Option<Self::I> {
+        match res
+        {
+            Ok(i) => {
+                println!("[{HANGAR_SIG}] Found version '{}'", i.version_title());
+                Some(i)
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                None
+            }
         }
     }
 }
@@ -437,78 +473,6 @@ impl HangarProject
     }
 }
 
-async fn collect_plugins(
-    requester: Arc<QueryRequest<HangarVerQuery>>,
-    ids: Vec<String>,
-    platform: Arc<arguments::Platform>,
-) -> Vec<HangarItem>
-{
-    fn err_or_return(res: Result<HangarItem, ItemError>) -> Option<HangarItem>
-    {
-        match res
-        {
-            Ok(i) => {
-                println!("{}", hangar_msg(&format!(
-                    "Found version '{}'", i.version_title()
-                )));
-                Some(i)
-            }
-            Err(e) => { eprintln!("{e}"); None}
-        }
-    }
-
-    let mut set = JoinSet::new();
-    let semaphore = Arc::new(Semaphore::new(8));
-    for id in ids
-    {
-        let sem_clone = Arc::clone(&semaphore);
-        let req_clone = Arc::clone(&requester);
-        let plat_clone = Arc::clone(&platform);
-
-        set.spawn(async move
-        {
-            let _permit = match sem_clone.acquire().await
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Async HTTP request failed: {e}");
-                    return None
-                }
-            };
-
-            err_or_return(HangarItem::build_from_id(
-                &req_clone,
-                &id,
-                &plat_clone
-            ).await)
-        });
-    }
-
-    let mut items = Vec::<HangarItem>::new();
-
-    while let Some(i_res) = set.join_next().await
-    {
-        if let Ok(Some(i)) = i_res
-        {
-            items.push(i);
-        }
-    }
-
-    items
-    // let mut plugins = Vec::new();
-    // for id in ids
-    // {
-    //     plugins.push(HangarItem::build_from_id(requester, id, platform))
-    // }
-    // future::join_all(plugins).await
-    //     .into_iter()
-    //     .filter_map(|result|
-    //     {
-    //         err_or_return(result)
-    //     })
-        // .collect::<Vec<_>>()
-}
-
 async fn plugin_list_from_ids<'a>(
     conf: &arguments::Config<'a, &DownloadSettings>,
     client: reqwest::Client,
@@ -532,9 +496,9 @@ async fn plugin_list_from_ids<'a>(
         query.set_channel(http_handler::Channels::Release);
     }
 
-    let pid_requester = Arc::new(QueryRequest::build(client.clone(), query));
-    let platform = Arc::new(platform);
-    let mut plugins = collect_plugins(Arc::clone(&pid_requester), ids, platform).await;
+    let pid_requester = QueryRequest::build(client.clone(), query);
+    let builder = Arc::new(HangarItemBuilder::new(pid_requester, platform));
+    let mut plugins = items::collect_items(Arc::clone(&builder), ids).await;
 
     if conf.opts().skip_deps()
     {
@@ -543,7 +507,7 @@ async fn plugin_list_from_ids<'a>(
 
     let vid_requester = BasicRequest::build(client.clone());
     let dep_requester = DependencyRequester::new(
-        &pid_requester,
+        builder.requester(),
         &vid_requester,
     );
 
